@@ -1,38 +1,92 @@
-# deepseek-web-cliproxy
+# Web AI MCP
 
-将 DeepSeek 网页版会话适配为 CLIProxyAPI 的独立 Provider Plugin，通过 OpenAI 兼容接口调用网页端模型。
+**DeepSeek Web-first MCP server with reserved extension points for Doubao and other web AI services.**
 
-## 项目定位
+> Project status: v0.1 engineering scaffold. Build and live DeepSeek Web connectivity must be verified locally. This repository was previously named for CLIProxyAPI; its product direction is now MCP-only.
 
-本项目面向个人、本机和实验性使用：复用用户已经登录的 DeepSeek Web 会话，不需要 DeepSeek API Key。它不是官方 API，也不是面向多人共享或生产流量的免费 API 网关。
+## Goal
 
-核心目标是把网页端能力接入 CLIProxyAPI：
+Give Codex, Claude Code, Cursor, OpenCode, and other MCP clients access to **your own DeepSeek website conversation** for external analysis, thinking, file review, and multi-turn follow-ups. The first release implements **only DeepSeek Web**. Doubao and other providers are **topology placeholders**, not working integrations.
 
-```text
-OpenAI Client → CLIProxyAPI → deepseek-web plugin → chat.deepseek.com Web API
-```
+This is **not** a CLIProxyAPI plugin, OpenAI-compatible proxy, official DeepSeek API client, public free API gateway, or full autonomous coding agent.
 
-首版只承诺文本 Chat、流式 SSE、Reasoner 映射、模型列表和可诊断错误；Responses API、文件、视觉、搜索和工具调用属于后续范围。
+## Topology
 
-## 重要边界
+    Codex / Claude Code / other MCP Client
+                    |
+               MCP (stdio)
+                    |
+              MCP Tools
+                    |
+            ProviderRegistry
+                    |
+             WebAIProvider
+                    |
+        +-----------+-------------+
+        |           |             |
+      DeepSeek    Doubao       Other AI
+      ACTIVE      RESERVED     RESERVED
+        |
+    DeepSeek Web Client
+      /   |     |     \
+    Auth  PoW  Session SSE/Files
+        |
+    chat.deepseek.com (private web interface)
 
-- 上游使用 DeepSeek 私有网页接口，接口、PoW、风控和会话行为可能随时变化。
-- “免费”仅表示不产生 DeepSeek API 账单，仍受网页账号额度、并发和服务条款约束。
-- 不保存明文密码；默认使用用户提供的 User Token 或浏览器会话导入。
-- 默认单账号、低并发、本机监听；生产部署、公共网关和绕过风控不在范围内。
+**Capabilities, not provider count, drive extension.** A future provider must be implemented, tested, and explicitly registered before clients can call it.
 
-## 文档
+## MVP tools
 
-- [架构设计](docs/architecture.md)
-- [需求范围](docs/requirements.md)
-- [里程碑](docs/roadmap.md)
-- [风险与应对](docs/risks.md)
-- [本地 Codex 实施指南](docs/local-codex-guide.md)
+| Tool | Description |
+| ---- | ----------- |
+| deepseek_chat | Ask DeepSeek Web; optionally continue session_key |
+| deepseek_reasoner | Invoke website thinking mode |
+| deepseek_analyze_files | Analyze explicitly allowlisted local files via website upload |
+| deepseek_sessions_list | List local sessions without exposing upstream IDs |
+| deepseek_session_close | Forget local session only (does not delete web history) |
+| webai_providers | Report active vs. not-implemented provider entries |
 
-## 参考实现
+Website search is **not enabled**: pinned upstream's session call sets search_enabled to false. Function calling, API routing, browser-assisted login and multiple web services are not in MVP.
 
-需求分析参考 `booleamu/deepseek-mcp-server` 的 Web Client、PoW、Session 和 SSE 处理思路；CLIProxyAPI 侧应参考其当前 Plugin ABI 与 `workbuddy-cliproxy` 等同类 Provider Plugin。实现前必须以目标版本源码和官方文档重新核对接口，不把本 README 当作 ABI 规范。
+## Install (after local validation)
 
-## 验收定义（原型阶段）
+Requirements: Node.js >= 20, npm, Git, and a valid userToken from **your own** DeepSeek website login.
 
-文档完成即表示原型完成。代码阶段的最小验收是：本地 CLIProxyAPI 加载插件；`GET /v1/models` 返回声明的 DeepSeek Web 模型；`POST /v1/chat/completions` 能完成非流式和流式文本请求；失效会话、PoW 失败、上游限流和 SSE 异常均返回可诊断的 OpenAI 错误结构。
+    npm install
+    npm run setup:upstream
+    npm run build
+    npm test
+
+The setup step fetches specific Web-only source files and PoW WASM from a **pinned upstream commit**. Vendored upstream files are intentionally excluded from this repository pending independent license/provenance review.
+
+Set DEEPSEEK_USER_TOKEN securely in the shell, then add to Codex:
+
+    codex mcp add web-ai --env DEEPSEEK_USER_TOKEN="$DEEPSEEK_USER_TOKEN" -- node /ABSOLUTE/PATH/web-ai-mcp/dist/index.js
+
+Adjust the absolute path to where you cloned this repository. Never paste tokens in GitHub, chat messages or logs.
+
+For local file upload, explicitly set WEB_AI_ALLOWED_ROOTS to directory paths separated by the OS path delimiter. Without this setting, file upload tools fail closed. MVP caps uploads to 5 files, 10 MiB each and 20 MiB total.
+
+## Development state and security
+
+- The source scaffold is **not yet a proven, build-verified, live-tested release**. Follow [Codex tasks](docs/CODEX_TASKS.md) before treating it as operational.
+- The Web integration uses unsupported private interfaces that can change without notice; access restrictions, PoW, CAPTCHA or rate limiting may prevent operation.
+- No bypass of access controls, CAPTCHA, WAF or account restrictions; no rotation of accounts to evade limits.
+- Session keys are process-local and expire after 30 minutes by default; unknown/expired keys fail instead of silently opening a new web conversation.
+- Web browser accounts can be free for normal UI use, but this project is **not** a sanctioned free developer API. Respect the service's terms and limits.
+
+## Project documentation
+
+- [Requirements](docs/PRD.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Provider extension contract](docs/PROVIDER_GUIDE.md)
+- [Codex implementation plan](docs/CODEX_TASKS.md)
+- [Security and known risks](docs/SECURITY.md)
+- [Upstream code provenance](THIRD_PARTY_NOTICES.md)
+- [Codex working rules](AGENTS.md)
+
+Source research: https://github.com/booleamu/deepseek-mcp-server
+
+## Repository naming
+
+This existing GitHub repository retains the legacy URL **983033995/deepseek-web-cliproxy** to avoid breaking links. The application/package name is **web-ai-mcp**; repository renaming can be done separately in GitHub settings if desired.
