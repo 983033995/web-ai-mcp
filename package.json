@@ -5,7 +5,9 @@
   "type": "module",
   "description": "Multi-provider-ready MCP with DeepSeek Web as the only implemented provider",
   "license": "UNLICENSED",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "setup:upstream": "node scripts/sync-upstream.mjs",
     "dev": "tsx src/index.ts",
@@ -22,5 +24,13 @@
     "@types/node": "^22.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/983033995/web-ai-mcp.git"
+  },
+  "homepage": "https://github.com/983033995/web-ai-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/983033995/web-ai-mcp/issues"
   }
 }
