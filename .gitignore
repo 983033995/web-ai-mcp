@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+# Source imported locally at a pinned revision; see THIRD_PARTY_NOTICES.md
+src/providers/deepseek/upstream/*
+!src/providers/deepseek/upstream/.gitkeep

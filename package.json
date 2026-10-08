@@ -1,0 +1,26 @@
+{
+  "name": "web-ai-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Multi-provider-ready MCP with DeepSeek Web as the only implemented provider",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "setup:upstream": "node scripts/sync-upstream.mjs",
+    "dev": "tsx src/index.ts",
+    "build": "tsc && node scripts/copy-wasm.mjs",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0"
+  }
+}
