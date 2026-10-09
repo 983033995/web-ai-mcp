@@ -25,3 +25,8 @@ Build a safe, maintainable MCP server exposing **your own web AI conversations**
 3. Fix only real build/test failures. Do not claim live compatibility based on compilation.
 4. Verify MCP Inspector tool discovery, then conduct authorized opt-in website smoke tests.
 5. Do not implement Doubao or HTTP transport until explicit subsequent requirements.
+
+## GitHub maintenance
+- Use a task branch and a pull request; do not push ordinary changes directly to protected main. Codex branch names use codex/.
+- Follow CONTRIBUTING.md. Required checks are the CI jobs Node 20, Node 22 and Node 24; merge only after they pass and review conversations are resolved.
+- CI uses local fixtures without website credentials. Do not publish imported upstream files, WASM or build artifacts from Actions.

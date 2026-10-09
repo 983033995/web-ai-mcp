@@ -1,0 +1,66 @@
+name: Bug report / 问题反馈
+description: 报告已实现功能的问题，请只提交脱敏信息。
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        当前仅支持 DeepSeek Web 和本地 stdio。不要提交 token、Cookie、会话存储、原始网站响应、私有对话或文件内容。
+        涉及凭据泄漏的内容不要发到公开 Issue，先撤销或更新凭据，并阅读安全说明。
+  - type: input
+    id: version
+    attributes:
+      label: 项目版本或 commit
+      placeholder: "例如：v0.1.0 / commit SHA"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 操作系统、Node.js 版本、MCP 客户端与版本；不要附带 .env 或本机私有路径。
+      placeholder: "macOS / Node.js 24.x / Codex"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 问题范围
+      options:
+        - 安装或启动
+        - 聊天或思考
+        - 会话续聊或持久化
+        - 文件分析
+        - 文档或其他已实现功能
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 最小复现步骤
+      description: 工具名、脱敏后的参数与操作顺序；文件请使用非敏感样例。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为与实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: errors
+    attributes:
+      label: 脱敏错误码或日志
+      description: 仅粘贴必要摘要，移除凭据、完整路径、网站 ID 与私有内容。
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已阅读 README 常见问题并检索已有 Issue。
+          required: true
+        - label: 我已移除凭据、私有路径、会话存储及私有内容。
+          required: true
+
