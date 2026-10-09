@@ -8,7 +8,7 @@
 - 在临时目录安装 tarball，通过 npm exec 检查 help/version/env-file/setup，并使用安装后的 bin 完成六工具发现、聊天、续聊、重启恢复、思考、文件与会话管理的本地 smoke。
 - [PR #7](https://github.com/983033995/web-ai-mcp/pull/7) 的 Node.js 20/22/24 CI 均通过，包括隔离安装 npm 包。
 - [发布工作流验证模式](https://github.com/983033995/web-ai-mcp/actions/runs/37926416687)通过：构建、35 项测试、本地与包 smoke、安装后首次 WASM 真实下载及哈希校验成功；Publish 步骤明确跳过。
-- 本机首次真实下载受网络影响失败，GitHub-hosted runner 的真实下载验收通过。首次 npm 账号授权和 registry 发布仍待完成，不将验证模式通过写成 npx registry 安装已经成功。
+- 本机首次真实下载受网络影响失败，GitHub-hosted runner 的真实下载验收通过。维护者随后完成 npm 首发和 trusted publisher 配置，registry 已验证 web-ai-mcp@0.1.1、MIT 与 tarball 哈希一致。0.1.2 将通过 GitHub Release 触发自动发布，最终结果以对应 Actions 运行及 registry 版本为准。
 
 以下为此前网站及源码验证记录。
 
