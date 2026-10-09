@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="620" viewBox="0 0 1280 620" role="img" aria-labelledby="title desc">
+<title id="title">Web AI MCP quick start</title>
+<desc id="desc">Install and build, configure your own token and a local stdio MCP client, then use deepseek_chat with a named conversation and make_default to continue the discussion. File uploads require an explicit allowlist.</desc>
+<rect width="1280" height="620" fill="#f7f3e9"/>
+<text x="64" y="58" font-family="Trebuchet MS, sans-serif" font-size="18" font-weight="700" fill="#2b7163">GET STARTED / THREE STEPS</text>
+<text x="60" y="140" font-family="Georgia, serif" font-size="65" font-weight="700" fill="#173a3b">From setup to follow-up.</text>
+<text x="64" y="193" font-family="Trebuchet MS, sans-serif" font-size="27" font-weight="400" fill="#54716b">One local server. A conversation you can return to.</text>
+<rect x="64" y="238" width="336" height="272" rx="14" fill="#fffdf7" stroke="#d5ded5"/>
+<rect x="88" y="260" width="51" height="42" rx="8" fill="#dcece3"/>
+<text x="99" y="290" font-family="Trebuchet MS, sans-serif" font-size="24" font-weight="700" fill="#2b7163">01</text>
+<text x="88" y="350" font-family="Trebuchet MS, sans-serif" font-size="31" font-weight="700" fill="#173a3b">Install &amp; build</text>
+<rect x="88" y="374" width="288" height="110" rx="8" fill="#eef2eb"/>
+<text x="104" y="404" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#3a6158">npm install</text>
+<text x="104" y="435" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#3a6158">npm run setup:upstream</text>
+<text x="104" y="466" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#3a6158">npm run build</text>
+<rect x="472" y="238" width="336" height="272" rx="14" fill="#fffdf7" stroke="#d5ded5"/>
+<rect x="496" y="260" width="51" height="42" rx="8" fill="#dcece3"/>
+<text x="507" y="290" font-family="Trebuchet MS, sans-serif" font-size="24" font-weight="700" fill="#2b7163">02</text>
+<text x="496" y="350" font-family="Trebuchet MS, sans-serif" font-size="31" font-weight="700" fill="#173a3b">Connect client</text>
+<rect x="496" y="374" width="288" height="110" rx="8" fill="#eef2eb"/>
+<text x="512" y="404" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#3a6158">Your own web token</text>
+<text x="512" y="435" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#3a6158">Local stdio MCP</text>
+<text x="512" y="466" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#3a6158">Absolute entry path</text>
+<rect x="880" y="238" width="336" height="272" rx="14" fill="#fffdf7" stroke="#d5ded5"/>
+<rect x="904" y="260" width="51" height="42" rx="8" fill="#dcece3"/>
+<text x="915" y="290" font-family="Trebuchet MS, sans-serif" font-size="24" font-weight="700" fill="#2b7163">03</text>
+<text x="904" y="350" font-family="Trebuchet MS, sans-serif" font-size="31" font-weight="700" fill="#173a3b">Ask &amp; continue</text>
+<rect x="904" y="374" width="288" height="110" rx="8" fill="#eef2eb"/>
+<text x="920" y="404" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#3a6158">deepseek_chat</text>
+<text x="920" y="435" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#3a6158">conversation_name</text>
+<text x="920" y="466" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#3a6158">make_default: true</text>
+<path d="M 416 370 L 456 370" stroke="#2b7163" stroke-width="2" fill="none"/>
+<path d="M 448 363 L 456 370" stroke="#2b7163" stroke-width="2" fill="none"/>
+<path d="M 448 377 L 456 370" stroke="#2b7163" stroke-width="2" fill="none"/>
+<path d="M 824 370 L 864 370" stroke="#2b7163" stroke-width="2" fill="none"/>
+<path d="M 856 363 L 864 370" stroke="#2b7163" stroke-width="2" fill="none"/>
+<path d="M 856 377 L 864 370" stroke="#2b7163" stroke-width="2" fill="none"/>
+<text x="64" y="571" font-family="Trebuchet MS, sans-serif" font-size="23" font-weight="400" fill="#54716b">File analysis is opt-in: set WEB_AI_ALLOWED_ROOTS before uploading.</text>
+</svg>

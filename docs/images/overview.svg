@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+<title id="title">Web AI MCP architecture</title>
+<desc id="desc">A local MCP client calls Web AI MCP over stdio. The server connects to your own DeepSeek web account. Session lineage is stored locally; messages and allowlisted files are sent to DeepSeek.</desc>
+<rect width="1280" height="640" fill="#102b2d"/>
+<text x="64" y="60" font-family="Trebuchet MS, sans-serif" font-size="18" font-weight="700" fill="#8ed9c0">YOUR ACCOUNT. YOUR CONVERSATION.</text>
+<rect x="994" y="32" width="222" height="42" rx="21" fill="#1d4042" stroke="#396164"/>
+<text x="1019" y="60" font-family="Trebuchet MS, sans-serif" font-size="19" font-weight="700" fill="#e6efeb">STDIO  /  v0.1.0</text>
+<text x="60" y="164" font-family="Georgia, serif" font-size="88" font-weight="700" fill="#f6f2e6">Web AI MCP</text>
+<text x="64" y="216" font-family="Trebuchet MS, sans-serif" font-size="27" font-weight="400" fill="#c6d9d5">Consult. Think. Continue — inside your coding workflow.</text>
+<rect x="64" y="272" width="336" height="180" rx="16" fill="#1a383a" stroke="#416365"/>
+<text x="88" y="310" font-family="Trebuchet MS, sans-serif" font-size="17" font-weight="700" fill="#8ed9c0">01 / CLIENT</text>
+<text x="88" y="356" font-family="Trebuchet MS, sans-serif" font-size="32" font-weight="700" fill="#f6f2e6">MCP client</text>
+<text x="88" y="399" font-family="Trebuchet MS, sans-serif" font-size="21" font-weight="400" fill="#d3e0dc">Codex · Claude Code</text>
+<text x="88" y="429" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#a6c2bc">Local coding assistant</text>
+<rect x="472" y="272" width="336" height="180" rx="16" fill="#1a383a" stroke="#416365"/>
+<text x="496" y="310" font-family="Trebuchet MS, sans-serif" font-size="17" font-weight="700" fill="#8ed9c0">02 / LOCAL SERVER</text>
+<text x="496" y="356" font-family="Trebuchet MS, sans-serif" font-size="32" font-weight="700" fill="#f6f2e6">Web AI MCP</text>
+<text x="496" y="399" font-family="Trebuchet MS, sans-serif" font-size="21" font-weight="400" fill="#d3e0dc">6 tools · session persistence</text>
+<text x="496" y="429" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#a6c2bc">Chat · thinking · files</text>
+<rect x="880" y="272" width="336" height="180" rx="16" fill="#1a383a" stroke="#416365"/>
+<text x="904" y="310" font-family="Trebuchet MS, sans-serif" font-size="17" font-weight="700" fill="#8ed9c0">03 / YOUR ACCOUNT</text>
+<text x="904" y="356" font-family="Trebuchet MS, sans-serif" font-size="32" font-weight="700" fill="#f6f2e6">DeepSeek Web</text>
+<text x="904" y="399" font-family="Trebuchet MS, sans-serif" font-size="21" font-weight="400" fill="#d3e0dc">Own-account web access</text>
+<text x="904" y="429" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#a6c2bc">Private website interface</text>
+<path d="M 416 362 L 456 362" stroke="#8ed9c0" stroke-width="2" fill="none"/>
+<path d="M 448 355 L 456 362" stroke="#8ed9c0" stroke-width="2" fill="none"/>
+<path d="M 448 369 L 456 362" stroke="#8ed9c0" stroke-width="2" fill="none"/>
+<path d="M 824 362 L 864 362" stroke="#8ed9c0" stroke-width="2" fill="none"/>
+<path d="M 856 355 L 864 362" stroke="#8ed9c0" stroke-width="2" fill="none"/>
+<path d="M 856 369 L 864 362" stroke="#8ed9c0" stroke-width="2" fill="none"/>
+<text x="417" y="346" font-family="Trebuchet MS, sans-serif" font-size="15" font-weight="400" fill="#a6c2bc">stdio</text>
+<text x="821" y="346" font-family="Trebuchet MS, sans-serif" font-size="15" font-weight="400" fill="#a6c2bc">web</text>
+<path d="M 64 488 L 1216 488" stroke="#416365" stroke-width="1" fill="none"/>
+<text x="64" y="537" font-family="Trebuchet MS, sans-serif" font-size="27" font-weight="700" fill="#f6f2e6">Session lineage stays local.</text>
+<text x="64" y="577" font-family="Trebuchet MS, sans-serif" font-size="23" font-weight="400" fill="#a6c2bc">Messages and allowlisted files are sent to DeepSeek.</text>
+<text x="950" y="539" font-family="Trebuchet MS, sans-serif" font-size="22" font-weight="700" fill="#8ed9c0">DEEPSEEK ONLY</text>
+<text x="950" y="577" font-family="Trebuchet MS, sans-serif" font-size="20" font-weight="400" fill="#a6c2bc">Web search disabled</text>
+</svg>
