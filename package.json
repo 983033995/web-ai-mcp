@@ -14,7 +14,9 @@
     "build": "tsc && node scripts/copy-wasm.mjs",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "smoke:local": "node scripts/smoke-mcp.mjs",
+    "smoke:live": "node scripts/smoke-mcp.mjs --live"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

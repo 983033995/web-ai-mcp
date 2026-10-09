@@ -13,6 +13,7 @@ export interface ChatRequest {
   message: string;
   systemPrompt?: string;
   thinking: boolean;
+  signal?: AbortSignal;
 }
 
 export interface ProviderResult {
@@ -20,6 +21,14 @@ export interface ProviderResult {
   reasoning?: string;
   remoteSession?: RemoteSession;
   usage?: Record<string, number>;
+  warning?: string;
+}
+
+/** A failed write may have advanced website state even without a usable reply. */
+export class ProviderError extends Error {
+  constructor(message: string, readonly code: string, readonly sessionUncertain = false) {
+    super(message);
+  }
 }
 
 export interface FileInput {
@@ -33,5 +42,5 @@ export interface WebAIProvider {
   readonly capabilities: ProviderCapabilities;
   initialize(): Promise<void>;
   chat(request: ChatRequest, session?: RemoteSession): Promise<ProviderResult>;
-  analyzeFiles?(files: FileInput[], instruction: string, thinking: boolean): Promise<ProviderResult>;
+  analyzeFiles?(files: FileInput[], instruction: string, thinking: boolean, signal?: AbortSignal): Promise<ProviderResult>;
 }

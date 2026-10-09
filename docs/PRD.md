@@ -17,6 +17,8 @@ Expose the user's own **DeepSeek web conversations** to MCP-aware coding agents 
 7. File analysis of explicit user-selected, path-allowlisted files with total-byte and per-file limits.
 8. Provider listing distinguishes active DeepSeek and planned Doubao (not callable).
 9. Credential redaction, typed errors, deterministic fixtures, and local Codex smoke steps.
+10. Project-private persistent lineage, stable conversation_id, named conversations and optional project default; local TTL defaults to disabled.
+11. Explicit secure token-update guidance for HTTP and website-layer authentication failures.
 
 ## Out of scope
 - CLIProxyAPI plugin or OpenAI Chat/Responses proxy.
@@ -27,7 +29,6 @@ Expose the user's own **DeepSeek web conversations** to MCP-aware coding agents 
 - Claims of stable or unlimited website API quotas.
 
 ## Future work (after empirical validation)
-- Opt-in persistent sessions with secret-safe storage and cleanup.
 - DeepSeek Web Search only after verifying the private web contract and acceptability.
 - Streamable HTTP MCP with explicit client authentication, TLS and origins.
 - Additional providers after separate technical/security feasibility study.

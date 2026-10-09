@@ -13,6 +13,8 @@ Local import performed by npm run setup:upstream:
 
 The official API client (client.ts), upstream MCP tool handlers and MCP entry point are **not** imported. The new project composes its own Web-only provider and MCP tools.
 
+The runtime now uses project-owned transport, error handling and SSE parsing. The imported TypeScript files remain local protocol references rather than runtime dependencies. `src/providers/deepseek/pow.ts` uses the WASM ABI observed in the pinned Web client; the actual WASM stays excluded from Git. This change does not resolve upstream/WASM licensing or grant redistribution rights.
+
 The upstream README claims MIT. A repository-root LICENSE file was not present in review, and bundled WASM redistribution rights were not independently verified. Keep imported code out of this public GitHub repository until copyright and provenance are confirmed. Local setup only; do not imply a license grant.
 
 DeepSeek website access may be subject to contractual limitations. This project is not endorsed by DeepSeek or any other website AI provider.
