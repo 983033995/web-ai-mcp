@@ -1,5 +1,7 @@
 # Web AI MCP
 
+[![CI](https://github.com/983033995/web-ai-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/983033995/web-ai-mcp/actions/workflows/ci.yml)
+
 ![Web AI MCP 架构：本机编程助手通过 stdio 调用 MCP 服务，再连接本人 DeepSeek 网页账号；会话关联保存在本地，消息和授权文件发送到网站。](docs/images/overview.png)
 
 通过 MCP，让本机 AI 编程助手调用**你自己的 DeepSeek 网页账号**，进行聊天、深度思考、文件分析和多轮讨论。
@@ -402,7 +404,7 @@ node --env-file=.env scripts/smoke-mcp.mjs --live --files
 | `scripts/` | 上游导入、WASM 复制与 smoke 验证 |
 | `tests/` | 确定性测试 |
 
-参与修改前请阅读 [AGENTS.md](AGENTS.md)，保持网站协议实现位于 provider 内，避免把未验证的服务或能力注册为可用工具。
+参与修改前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [AGENTS.md](AGENTS.md)。改动通过功能分支与 PR 提交，合并前通过 Node.js 20、22、24 的 CI 检查。保持网站协议实现位于 provider 内，避免把未验证的服务或能力注册为可用工具。
 
 - [需求与范围](docs/PRD.md)
 - [架构](docs/ARCHITECTURE.md)

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用说明与常见问题
+    url: https://github.com/983033995/web-ai-mcp#readme
+    about: 安装、认证、客户端接入与错误处理。
+  - name: 安全与凭据处理
+    url: https://github.com/983033995/web-ai-mcp/blob/main/docs/SECURITY.md
+    about: 不要在公开 Issue 中提交 token、Cookie、会话存储或私有内容。
