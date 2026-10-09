@@ -11,6 +11,9 @@ const live = process.argv.includes("--live");
 const files = !live || process.argv.includes("--files");
 const marker = "mcp-" + randomUUID();
 const token = live ? process.env.DEEPSEEK_USER_TOKEN : "local-fixture-token";
+const serverCommand = process.env.WEB_AI_SMOKE_COMMAND || process.execPath;
+const serverArgs = process.env.WEB_AI_SMOKE_ARGS ? JSON.parse(process.env.WEB_AI_SMOKE_ARGS) : [resolve("dist/index.js")];
+const serverCwd = process.env.WEB_AI_SMOKE_CWD;
 let stage = "configuration";
 let failureReason = "check failed";
 let directory;
@@ -86,6 +89,7 @@ try {
   directory = await mkdtemp(resolve(".validation-smoke-"));
   const env = { DEEPSEEK_USER_TOKEN: token, DEEPSEEK_TIMEOUT: process.env.DEEPSEEK_TIMEOUT || "120000",
     WEB_AI_PROJECT_ROOT: directory, WEB_AI_SESSION_TTL_MINUTES: "0" };
+  if (process.env.WEB_AI_WASM_PATH) env.WEB_AI_WASM_PATH = process.env.WEB_AI_WASM_PATH;
   if (!live) {
     website = localWebsite();
     website.listen(0, "127.0.0.1");
@@ -97,7 +101,7 @@ try {
     env.WEB_AI_ALLOWED_ROOTS = directory;
   }
   client = new Client({ name: "web-ai-mcp-smoke", version: "0.1.0" });
-  transport = new StdioClientTransport({ command: process.execPath, args: [resolve("dist/index.js")], env, stderr: "pipe" });
+  transport = new StdioClientTransport({ command: serverCommand, args: serverArgs, cwd: serverCwd, env, stderr: "pipe" });
   // Consume stderr without printing credentials, upstream IDs or response bodies.
   transport.stderr?.on("data", () => {});
   stage = "stdio initialize";
@@ -145,7 +149,7 @@ try {
   await transport.close();
   stage = "stdio restart and persisted conversation";
   client = new Client({ name: "web-ai-mcp-smoke-restart", version: "0.1.0" });
-  transport = new StdioClientTransport({ command: process.execPath, args: [resolve("dist/index.js")], env, stderr: "pipe" });
+  transport = new StdioClientTransport({ command: serverCommand, args: serverArgs, cwd: serverCwd, env, stderr: "pipe" });
   transport.stderr?.on("data", () => {});
   await client.connect(transport);
   const persisted = await successful("deepseek_chat", { message: "刚才的测试标记是什么？只返回标记。" });

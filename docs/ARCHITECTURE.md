@@ -55,3 +55,8 @@ Doubao is reserved under src/providers/doubao, with a README explaining the adap
 
 ## Transport decision
 v0.1 uses local stdio only; shared/remote HTTP would require authentication, origin policy, rate control and user isolation.
+
+## npm entry and runtime assets
+The npm executable is dist/index.js. --help and --version need no account; --setup verifies a local PoW file or downloads pinned bytes into the user's cache. --env-file explicitly loads local configuration before provider creation; environment variables already present take precedence. Source imports remain local, while npm's files allowlist excludes upstream files, WASM and source maps.
+
+Provider initialization uses the explicit WEB_AI_WASM_PATH first, then a source checkout's imported WASM, then a verified cache. Missing cache triggers one bounded download from the fixed upstream URL without website credentials. Hash mismatches or explicit missing files fail closed, never switching silently to another artifact. See THIRD_PARTY_NOTICES.md for the pin/hash and licensing boundary.

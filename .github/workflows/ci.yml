@@ -45,3 +45,5 @@ jobs:
         run: npm test
       - name: Local MCP smoke (no website credentials)
         run: npm run smoke:local
+      - name: Inspect and test installed npm package
+        run: npm run smoke:package

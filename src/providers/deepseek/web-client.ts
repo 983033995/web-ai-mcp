@@ -1,10 +1,10 @@
-import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import type { ChatRequest, FileInput, RemoteSession } from "../../core/provider.js";
 import { DeepSeekWebError, httpError, authenticationError, isAuthenticationCode } from "./errors.js";
 import { solvePow, type PowChallenge } from "./pow.js";
 import { parseSSE, type WebReply } from "./sse.js";
+import { loadPowWasm } from "./wasm.js";
 
 const challengeSchema = z.object({
   algorithm: z.literal("DeepSeekHashV1"), challenge: z.string().min(1), salt: z.string().min(1),
@@ -44,12 +44,7 @@ export class DeepSeekWebClient {
 
   async initialize(): Promise<void> {
     if (this.solver) return;
-    try {
-      const bytes = await readFile(new URL("./upstream/sha3_wasm_bg.wasm", import.meta.url));
-      this.module = await WebAssembly.compile(new Uint8Array(bytes));
-    } catch {
-      throw new DeepSeekWebError("pow_unavailable", "Missing or invalid pinned PoW WASM; run npm run setup:upstream and npm run build");
-    }
+    this.module = await loadPowWasm();
   }
 
   private async run<T>(signal: AbortSignal | undefined, operation: (context: RequestContext) => Promise<T>): Promise<T> {
