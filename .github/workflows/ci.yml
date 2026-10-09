@@ -45,4 +45,3 @@ jobs:
         run: npm test
       - name: Local MCP smoke (no website credentials)
         run: npm run smoke:local
-

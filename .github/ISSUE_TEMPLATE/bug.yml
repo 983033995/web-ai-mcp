@@ -63,4 +63,3 @@ body:
           required: true
         - label: 我已移除凭据、私有路径、会话存储及私有内容。
           required: true
-
