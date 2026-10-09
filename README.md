@@ -8,7 +8,7 @@
 
 适用于咨询代码、比较方案、持续讨论项目的场景。当前提供本地 **stdio MCP server**，仅实现 DeepSeek Web；Doubao 和其他网站仍是扩展预留。
 
-> **状态：v0.1.0，源码安装。** 已有本地构建、确定性测试、工具发现及本人账号网站测试记录，详见[验证记录](docs/LOCAL_VALIDATION.md)。网站私有接口可能变化，历史验证不保证其他账号或后续版本均可用。当前未发布 npm 包，项目许可及上游 WASM 再分发审查尚未完成。
+> **状态：v0.1.1，npm 发行准备中。** 项目自身代码采用 MIT，提供 npm/npx 入口及自动发布工作流；首次 registry 发布仍需维护者完成 npm 授权。以下 npx 配置在包发布后可用。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
 
 ## 目录
 
@@ -44,7 +44,24 @@
 
 ### 1. 安装与构建
 
-需要 Node.js **20 或以上**、npm、Git，以及访问 GitHub 和 DeepSeek 网站的网络。下面的 `.env` 加载示例使用 Node.js 的 `--env-file`，需要 **20.6 或以上**；建议使用仍受支持的 Node.js LTS 版本。
+需要 Node.js **20.12 或以上**、npm，以及访问 npm、GitHub 原始文件和 DeepSeek 网站的网络，建议使用受支持的 Node.js LTS。npm 包已经编译，不需要 Git、克隆项目或手动构建。
+
+包发布后，先准备一次 PoW WASM（不需要网站 token）：
+
+```bash
+npx -y web-ai-mcp@0.1.1 --setup
+```
+
+首次启动也会自动准备；显式执行 `--setup` 可避免客户端下载时间叠加 MCP 启动超时。WASM 从固定上游提交下载到本机缓存并校验 SHA-256，不写入 npm 安装目录，也不随包分发。后续版本更新请明确修改配置中的版本号。
+
+可选全局安装：
+
+```bash
+npm install -g web-ai-mcp@0.1.1
+web-ai-mcp --setup
+```
+
+开发或首次发布前，仍可通过源码安装（需要 Git）：
 
 ```bash
 git clone https://github.com/983033995/web-ai-mcp.git
@@ -60,7 +77,7 @@ npm run smoke:local
 
 `smoke:local` 使用本地模拟网站，验证聊天、续聊、思考、上传和会话管理，**不需要真实 token，不访问 DeepSeek**。
 
-当前采用 GitHub 源码安装，不提供 `npx web-ai-mcp` 或全局 npm 安装方式。
+npm 安装不会执行下载脚本；仅在 `--setup` 或服务初始化缺少本机 WASM 时下载。可通过 `WEB_AI_WASM_PATH` 指定同哈希的本机文件。第三方来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ### 2. 获取本人网站凭据
 
@@ -72,7 +89,7 @@ npm run smoke:local
 
 ### 3. 配置本机 `.env`
 
-首次配置时复制模板，再使用本机编辑器填写；已有 `.env` 时直接编辑，保留原配置：
+使用 npx 时，在你选择的本机私有位置用编辑器创建 `.env`，例如 `/absolute/path/to/web-ai.env`。源码安装可以复制模板；已有 `.env` 时直接编辑，保留原配置：
 
 ```bash
 cp .env.example .env
@@ -99,7 +116,7 @@ WEB_AI_ALLOWED_ROOTS=/absolute/path/to/your-project/docs:/absolute/path/to/revie
 
 Windows 的目录分隔符是 `;`，例如 `C:\Projects\demo\docs;D:\ReviewFiles`。仅允许必要的目录；留空则禁止上传。
 
-`.env` 已被本仓库忽略，但仍是本机明文秘密文件。不要提交、截图或粘贴 token 到聊天、日志或 Issue。
+源码仓库已忽略 `.env`；在其他项目创建秘密文件时也要排除 Git 跟踪。它仍是本机明文秘密文件，不要提交、截图或粘贴 token 到聊天、日志或 Issue。
 
 ### 4. 连接客户端并开始使用
 
@@ -113,13 +130,29 @@ Windows 的目录分隔符是 `;`，例如 `C:\Projects\demo\docs;D:\ReviewFiles
 
 MCP 客户端会启动并管理服务进程，无需另外常驻运行 `npm start`。将示例中的 `/absolute/path/to/web-ai-mcp` 和项目路径替换为实际**绝对路径**。
 
-**服务本身不会自动读取 `.env`。** 以下配置显式传入 Node.js 的 `--env-file`；也可以由客户端通过环境变量提供配置。修改 token 或配置后，需要重启 MCP 服务或重新连接客户端。
+**服务不会自动查找 `.env`。** npx 入口支持 `--env-file /绝对路径`，源码启动也可使用 Node.js 的 `--env-file`；或者由客户端通过环境变量提供配置。修改 token 或配置后，需要重启 MCP 服务或重新连接客户端。
 
 Node.js 会优先使用进程中已有的同名环境变量。如果更新 `.env` 后仍使用旧配置，检查客户端运行环境是否还注入了旧值。加载规则见 [Node.js CLI 文档](https://nodejs.org/api/cli.html#--env-filefile)。
 
 ### Codex
 
-在 `~/.codex/config.toml` 中添加下列配置，保留已有内容：
+包发布后，在 `~/.codex/config.toml` 添加 npx 配置，保留已有内容：
+
+```toml
+[mcp_servers.web-ai-mcp]
+command = "npx"
+args = ["-y", "web-ai-mcp@0.1.1", "--env-file", "/absolute/path/to/web-ai.env"]
+startup_timeout_sec = 60
+tool_timeout_sec = 180
+```
+
+也可以注册：
+
+```bash
+codex mcp add web-ai-mcp -- npx -y web-ai-mcp@0.1.1 --env-file /absolute/path/to/web-ai.env
+```
+
+源码安装的替代配置如下，不要与 npx 配置重复定义同名表：
 
 ```toml
 [mcp_servers.web-ai-mcp]
@@ -156,17 +189,17 @@ DEEPSEEK_TIMEOUT = "120000"
 
 ### Claude Code
 
-在要使用该工具的项目根目录添加或合并 `.mcp.json`：
+包发布后，在要使用工具的项目根目录添加或合并 `.mcp.json`：
 
 ```json
 {
   "mcpServers": {
     "web-ai-mcp": {
       "type": "stdio",
-      "command": "node",
+      "command": "npx",
       "args": [
-        "--env-file=/absolute/path/to/web-ai-mcp/.env",
-        "/absolute/path/to/web-ai-mcp/dist/index.js"
+        "-y", "web-ai-mcp@0.1.1",
+        "--env-file", "/absolute/path/to/web-ai.env"
       ]
     }
   }
@@ -177,7 +210,7 @@ DEEPSEEK_TIMEOUT = "120000"
 
 ### 其他支持 stdio 的客户端
 
-使用相同启动参数：`command` 为 `node`，`args` 为 `.env` 加载参数和构建入口的绝对路径。配置文件位置、外层字段及启用方式以客户端文档为准，不能将这里的配置当作 HTTP MCP 地址。
+使用相同 npx 启动参数，或源码入口的 Node.js 参数。配置文件位置、外层字段及启用方式以客户端文档为准，不能将这里的配置当作 HTTP MCP 地址。
 
 Windows JSON 路径可使用正斜杠（如 `C:/Projects/web-ai-mcp/dist/index.js`），或将反斜杠写成 `\\`。桌面客户端找不到 `node` 时，将 `command` 改为 Node.js 可执行文件的绝对路径。
 
@@ -298,6 +331,8 @@ Windows JSON 路径可使用正斜杠（如 `C:/Projects/web-ai-mcp/dist/index.j
 | `WEB_AI_SESSION_TTL_MINUTES` | `0` | `0` 不设本地过期时间；正数为距离上次使用的闲置过期分钟数 |
 | `WEB_AI_ALLOWED_ROOTS` | 空 | 上传目录白名单；macOS / Linux 用 `:` 分隔，Windows 用 `;` |
 | `DEEPSEEK_WEB_BASE_URL` | `https://chat.deepseek.com/api/v0` | 通常不需修改；仅接受该网站 origin 或本地 loopback 测试地址 |
+| `WEB_AI_WASM_PATH` | 未设置 | 指定本机固定哈希的 PoW WASM；缺失或哈希不匹配时直接报错，不下载替换 |
+| `XDG_CACHE_HOME` | `~/.cache` | npx 首次下载的缓存根目录；文件位于 `web-ai-mcp/<上游提交>/sha3_wasm_bg.wasm` |
 
 模板见 [.env.example](.env.example)。`DEEPSEEK_TIMEOUT` 不覆盖 MCP 客户端自己的超时，文件解析阶段另有最多 30 秒的等待限制。
 
@@ -325,6 +360,8 @@ Windows JSON 路径可使用正斜杠（如 `C:/Projects/web-ai-mcp/dist/index.j
 | --- | --- |
 | `setup:upstream` 下载失败 | 检查 GitHub 访问和本机 Git / 代理配置，恢复网络后重新执行；不要跳过 WASM 导入 |
 | `Missing upstream WASM` / `pow_unavailable` | 在仓库根目录依次执行 `npm run setup:upstream`、`npm run build` |
+| npx 的 WASM 下载或校验失败 | 检查 `raw.githubusercontent.com` 访问，执行 `npx -y web-ai-mcp@0.1.1 --setup`；或指定正确的本机 `WEB_AI_WASM_PATH`。损坏文件保留，不会自动覆盖 |
+| `npx` 返回 npm 404 | 核对维护者是否完成首次发布及包名/版本；发布准备阶段请使用源码安装 |
 | `Missing DEEPSEEK_USER_TOKEN` | 检查 `.env` 是否填好、启动参数是否显式传入 `--env-file`；或检查客户端环境变量 |
 | 本地测试通过，真实聊天失败 | 本地测试使用模拟网站，不验证账号权限、登录状态或当前网站兼容性 |
 | `authentication_error` / HTTP 401 / 网站 code 40003 | 在本人账号重新登录，更新本机 token 后重启 MCP；同一账号可以保留原存储 |
@@ -352,6 +389,7 @@ Windows JSON 路径可使用正斜杠（如 `C:/Projects/web-ai-mcp/dist/index.j
 | `npm run typecheck` | strict 类型检查 |
 | `npm test` | 确定性单元与集成测试 |
 | `npm run smoke:local` | 本地网站 fixture → HTTP / PoW → MCP stdio 验证 |
+| `npm run smoke:package` | 检查真实 tarball，在隔离目录安装并以 npm exec 验证完整本地 MCP 流程 |
 
 构建后可使用 MCP Inspector 检查工具发现，合成 token 不用于真实网站请求：
 
@@ -386,7 +424,7 @@ node --env-file=.env scripts/smoke-mcp.mjs --live --files
 
 公开仓库时，应排除 `.env`、会话存储、日志、用户文件与本机导入的上游源码 / WASM。本仓库已有对应忽略规则，但 `.gitignore` 不能清除已经提交过的秘密；公开前还需检查暂存内容和 Git 历史。提交 Issue 时只提供脱敏错误码、复现步骤、Node.js / 系统版本及客户端，不附 token、Cookie、会话存储或原始对话。
 
-**当前不是已确定许可的开源发行版。** `package.json` 为 `private: true`、`license: "UNLICENSED"`，仓库尚未附项目许可证。公开可见不等于获得使用、修改或再分发授权；正式开放授权前需选择项目许可证。上游 README 声称 MIT，但根许可证文件与所附 PoW WASM 的来源、再分发权仍待独立核实，不应将构建产物或 WASM 直接打包发布。
+项目自身代码采用 [MIT License](LICENSE)。此许可不适用于本机另行下载的第三方 WASM，也不授予 DeepSeek 网站使用权限。上游 README 声称 MIT，但根许可证文件与 PoW WASM 的来源、再分发权仍待独立核实；npm 包排除上游源码及 WASM，用户在本机从固定来源取得并校验它。哈希校验只能验证文件一致性，不代表许可或安全审查通过。
 
 依据见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[安全文档](docs/SECURITY.md)和[发布说明](docs/PUBLISHING.md)。本项目不隶属于 DeepSeek，也未获得其官方背书。
 

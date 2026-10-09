@@ -1,5 +1,15 @@
 # 本地验证记录
 
+## 2026-10-09：npm 包验收
+
+- 项目自身代码选择 MIT；npm bin 和文件白名单已配置，版本为 0.1.1。
+- strict 类型检查、构建及 35 项确定性测试通过，包括固定 WASM 下载、哈希校验、缓存复用、损坏文件保留和失败时不落盘。
+- 真实 tarball 含 30 个白名单文件，没有上游源码、WASM、source maps、凭据或会话数据。
+- 在临时目录安装 tarball，通过 npm exec 检查 help/version/env-file/setup，并使用安装后的 bin 完成六工具发现、聊天、续聊、重启恢复、思考、文件与会话管理的本地 smoke。
+- 首次 npm 账号授权、registry 发布和发布工作流远程验证仍待完成；不将上述结果写成 npx registry 安装已经成功。
+
+以下为此前网站及源码验证记录。
+
 验证日期：2026-10-08（Asia/Shanghai）。运行环境：macOS、Node.js v26.7.0。
 
 ## 实际执行结果

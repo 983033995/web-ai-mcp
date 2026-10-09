@@ -1,0 +1,82 @@
+name: Publish npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the verified package (false runs validation only)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build, verify and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm-release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Verify npm supports trusted publishing
+        run: |
+          node --input-type=module - <<'JS'
+          import { execFileSync } from 'node:child_process';
+          const [major, minor, patch] = execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim().split('.').map(Number);
+          if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) throw new Error('npm >=11.5.1 required for trusted publishing');
+          JS
+      - name: Verify release source and version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          SHOULD_PUBLISH: ${{ github.event_name == 'release' || inputs.publish }}
+          IS_PRERELEASE: ${{ github.event.release.prerelease || false }}
+        run: |
+          node --input-type=module - <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
+          if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Stable semver version required');
+          if (process.env.SHOULD_PUBLISH === 'true') {
+            if (process.env.IS_PRERELEASE === 'true') throw new Error('Prerelease publishing is not configured');
+            execFileSync('git', ['merge-base', '--is-ancestor', 'HEAD', 'origin/main']);
+            if (process.env.GITHUB_EVENT_NAME === 'release' && process.env.RELEASE_TAG !== `v${version}`) throw new Error('Release tag must match package.json version');
+            if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' && process.env.GITHUB_REF !== 'refs/heads/main') throw new Error('Manual publishing is allowed only from main');
+          }
+          JS
+      - run: npm ci
+      - run: npm run setup:upstream
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - run: npm run smoke:local
+      - name: Inspect tarball and verify isolated installation
+        run: npm run smoke:package
+        env:
+          WEB_AI_PACKAGE_TARBALL_DIR: .validation-package
+          WEB_AI_PACKAGE_DOWNLOAD_SMOKE: "1"
+      - name: Publish inspected tarball
+        if: github.event_name == 'release' || inputs.publish
+        run: npm publish .validation-package/web-ai-mcp-*.tgz --access public --provenance
+        env:
+          # OIDC is preferred; this optional secret permits the initial bootstrap publish.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

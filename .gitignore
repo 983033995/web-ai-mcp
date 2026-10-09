@@ -7,6 +7,7 @@ dist/
 .DS_Store
 .validation-*/
 .web-ai-mcp/
+*.tgz
 # Source imported locally at a pinned revision; see THIRD_PARTY_NOTICES.md
 src/providers/deepseek/upstream/*
 !src/providers/deepseek/upstream/.gitkeep

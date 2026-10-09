@@ -1,53 +1,60 @@
-# 发布到 MCP Registry 或插件市场
+# npm / npx 与自动发布
 
-核对日期：2026-10-08。以下是发布路径说明，本次没有向任何市场提交、上传或发布。
+包名：`web-ai-mcp`，准备发布版本：`0.1.1`。项目自身代码采用 MIT。首次 npm 发布与账号授权尚未完成；在 registry 出现该版本前，不宣称 npx 安装已可用。
 
-| 目标 | 当前 stdio 服务器是否适合 | 做什么 |
-| --- | --- | --- |
-| GitHub 源码分发 | 适合本机开发者安装 | 提供 README、版本及安装/凭据配置说明；上游参考源/WASM 仍在用户本机导入 |
-| npm + 官方 MCP Registry | 适合本地 stdio MCP | 先发布可安装 npm 包，再用 server.json 向 Registry 登记元数据与环境变量 |
-| Codex 本地/仓库市场 | 适合本地分发 | 将 MCP 连接和使用说明打成插件，加入仓库市场目录；它与公共插件目录不同 |
-| ChatGPT/Codex 公共插件目录 | 当前 stdio 无法直接按常规流程提交 | 官方要求提交远程 HTTPS MCP；本地 MCP 支持需联系 OpenAI。HTTP transport、用户隔离和远程认证尚未实现 |
+## 包的边界
 
-## 当前发布阻塞
+`package.json` 的 bin 指向 `dist/index.js`，发布文件使用白名单。仅包含项目自身 JavaScript、说明与模板；上游参考源、WASM、source maps、凭据和会话数据都被排除。`prepack` 构建源码，不执行安装期下载。
 
-- `package.json` 仍为 `private: true`、`UNLICENSED`，没有可执行包入口及发布文件白名单。本次不擅自更改许可或取消 private。
-- PoW WASM 的来源与再分发许可没有完成独立审查；不能把当前 `dist/`（含 WASM）直接公开打包。当前构建还会编译被忽略的参考源，应在发布打包时剔除无运行时用途的第三方代码。
-- 这是用户本人 DeepSeek 网站账号的私有接口适配器。市场上架不等于获得网站官方 API 授权；公开材料须明确它不是官方 API，并说明凭据、数据流和限制。
+npx 首次运行或 `--setup` 从固定上游 URL 下载 WASM 到用户缓存，校验 SHA-256 后使用；它不被代理到我们的服务器，也不进入 npm tarball。下载与本机导入不解决第三方许可问题，见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。
 
-## 推荐：先 npm，再 MCP Registry
+## GitHub Actions
 
-在解决许可和打包问题后：
+- `.github/workflows/ci.yml`：PR 和 main 推送运行 Node.js 20/22/24 的类型检查、构建、35 项确定性测试、本地 smoke 和隔离 npm 包 smoke。
+- `.github/workflows/publish.yml`：GitHub Release 发布时触发。手动运行默认只验证；将输入 `publish` 设为 true 才发布。
+- 发布在 `npm-release` environment 中运行，仅发布来自 main 历史的 commit；Release tag 必须与 package.json 一致，例如 `v0.1.1`。手动真正发布必须从 main 运行。
+- Node.js 24、npm >=11.5.1，禁用发布 job 的 npm 缓存。先构建、测试，再检查并隔离安装真实 tarball；最终发布同一个已验收 tarball。
+- 用 `contents: read` 和 `id-token: write` 支持 npm OIDC 与 provenance。不会使用 DEEPSEEK_USER_TOKEN，也不运行 live smoke。
 
-1. 确定公开包名称、版本和发布账号。在 `package.json` 配置 bin、files、许可和 `mcpName`。GitHub 验证命名空间示例为 `io.github.983033995/web-ai-mcp`，最终值以发布账号验证结果为准。
-2. 用文件白名单只包含运行所需文件和说明；排除 `.env`、`.web-ai-mcp/`、`.validation-*/`、测试素材、上游参考源及未经授权再分发的 WASM。
-3. 验证干净安装、构建、测试、MCP 工具发现以及 stdio 纯 JSON-RPC；检查 npm tarball 的每一个文件。
-4. 发布 npm 包。Registry 本身只托管元数据，不托管代码或二进制包。
-5. 按官方 quickstart 使用 `mcp-publisher init`、GitHub 身份验证和 `mcp-publisher publish`，生成/验证 `server.json`，登记 npm 包版本、stdio transport 和需要用户配置的环境变量。
-6. `DEEPSEEK_USER_TOKEN` 必须声明为用户提供的秘密变量；不能包含发布者 token。公开配置同时说明 `WEB_AI_PROJECT_ROOT`、`WEB_AI_SESSION_TTL_MINUTES=0`、允许上传的根目录，以及私有会话存储。
+## 首次授权
 
-官方 Registry 文档：
+维护者需要 npm 账号并拥有包名权限。PyPI 账号无法用于 npm。当前包名查询返回未发布，最终可注册性以 npm 首次发布结果为准。
 
-- https://github.com/modelcontextprotocol/registry/blob/main/docs/modelcontextprotocol-io/quickstart.mdx
-- https://github.com/modelcontextprotocol/registry/blob/main/docs/design/ecosystem-vision.md
+推荐先在本机完成 npm 登录和 2FA，再发布已经验收的包：
 
-## Codex 仓库市场
+```bash
+npm login --registry=https://registry.npmjs.org
+npm run setup:upstream
+npm run build
+npm run typecheck
+npm test
+npm run smoke:package
+npm publish --access public
+```
 
-官方当前支持 root `plugin.json` 和 `mcp.json` 的可移植 Agent Plugins 包，以及兼容的 `.codex-plugin/plugin.json` 结构。仓库市场位于 `.agents/plugins/marketplace.json`，插件路径相对于市场根目录。打包后通过 `codex plugin marketplace add <owner/repo>` 分发给使用该仓库市场的用户。这里的占位目录/仓库不是本项目已有的发布产物。
+随后在 npm 包 Settings → Trusted publishing 添加 GitHub Actions publisher：
 
-不要把本地/团队市场成功安装误写成已进入公共目录；也不要将任何用户凭据打入插件 ZIP。插件的会话使用说明应引导 agent 保存本地 conversation_id，或使用命名会话与 make_default。
+| 字段 | 值 |
+| --- | --- |
+| Organization or user | `983033995` |
+| Repository | `web-ai-mcp` |
+| Workflow filename | `publish.yml`（不带目录） |
+| Environment name | `npm-release` |
+| Allowed actions | 允许直接 `npm publish` |
 
-官方文档：
+配置完成后，后续发布不需要长期 token。npm trusted publishing 是 npm 侧授权，GitHub Actions 文件本身不能代替这个账号操作。首次创建包若无法先设置 trusted publisher，可先本机发布；也可为首次 Actions 发布配置仅有必要权限的 `NPM_TOKEN` environment secret，首次成功后移除并改用 OIDC。不要把 npm token 发到聊天、提交到仓库或输出到日志。
 
-- https://developers.openai.com/plugins/build/plugins
+官方依据：[npm trusted publishers](https://docs.npmjs.com/trusted-publishers)、[provenance](https://docs.npmjs.com/generating-provenance-statements)。
 
-## OpenAI 公共插件目录
+## 后续版本
 
-官方当前流程：验证开发者身份 → 上传插件 ZIP → 连接并扫描 MCP → 提供测试账号、5 个正向测试、3 个反向测试和演示录像 → 提交审核 → 通过后自行选择发布。
+1. 通过 PR 更新 package.json、锁文件版本与 README 示例。
+2. 三项 CI 通过后 squash 合并到 main。
+3. 在该合并 commit 创建与版本一致的 tag，再发布 GitHub Release；例如 `v0.1.2`。
+4. Actions 验证并发布。核对 npm 上的版本与 provenance，再更新发布状态说明。
 
-普通 MCP 提交需要远程 HTTPS 地址、域名验证、认证与隐私/支持/服务条款页面。本项目没有远程 transport；要走这条路线，需要另立远程、多用户、凭据保护与许可审查任务。当前不能拿本机 `node dist/index.js` 当成公共 HTTPS MCP 地址。
+不要每次 main 推送就发布新包，也不要覆盖已有 npm 版本。发布失败时先看失败步骤：权限错误修复 npm 授权；版本已存在则核对是否上次已经成功，勿自动重复发布。错误版本用新的修复版本替代，必要时 deprecate 受影响版本，不改写 Git 历史。
 
-官方文档：
+## 其他分发方式
 
-- https://developers.openai.com/plugins/deploy/submission
-- https://developers.openai.com/plugins/build/plugins#bundled-mcp-servers-and-lifecycle-hooks
+发布 npm 后可另行登记官方 MCP Registry；Registry 只存元数据，不托管运行中的服务。本项目仍为本地 stdio，未实现远程 HTTPS MCP，也未向 Registry 或插件市场提交。远程 transport、用户隔离及凭据托管应作为独立任务。

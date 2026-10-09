@@ -1,6 +1,6 @@
 # 参与开发与维护
 
-当前项目通过 GitHub 源码分发，许可状态见 [README](README.md#隐私安全与许可) 与 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。这些流程不改变现有许可，也不代表上游 WASM 可再分发。
+项目自身代码采用 [MIT](LICENSE)，支持 GitHub 源码分发并准备 npm 发行。第三方边界见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)，上游 WASM 不可随包或 CI artifacts 分发。
 
 ## 分支与合并
 
@@ -23,11 +23,12 @@ npm run typecheck
 npm run build
 npm test
 npm run smoke:local
+npm run smoke:package
 ```
 
 CI 在 Ubuntu 上检查 Node.js 20、22、24，触发条件为发往 `main` 的 PR、`main` 推送及手动运行。Actions 固定为提交 SHA，仅授予 `contents: read`，不注入本人网站 token。
 
-上游固定提交的协议参考源与 WASM 只导入 runner 本地；不缓存、上传或发布构建产物。`smoke:local` 使用 loopback fixture，不访问 DeepSeek 网站。真实网站验证仍由维护者在本机明确选择执行，见 [验证记录](docs/LOCAL_VALIDATION.md)。
+上游固定提交的协议参考源与 WASM 只导入 runner 本地，不缓存或上传。`smoke:local` 使用 loopback fixture；`smoke:package` 检查实际 tarball 并隔离安装，以 npm exec 验证相同流程，不访问 DeepSeek。发布工作流只发布经过检查的项目自身 JavaScript 与文档，详见[发布说明](docs/PUBLISHING.md)。
 
 修改业务代码时补充相关确定性测试。项目没有 lint 脚本，勿在 PR 中声明不存在的检查已通过。
 

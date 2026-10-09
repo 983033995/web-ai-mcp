@@ -29,4 +29,4 @@ Build a safe, maintainable MCP server exposing **your own web AI conversations**
 ## GitHub maintenance
 - Use a task branch and a pull request; do not push ordinary changes directly to protected main. Codex branch names use codex/.
 - Follow CONTRIBUTING.md. Required checks are the CI jobs Node 20, Node 22 and Node 24; merge only after they pass and review conversations are resolved.
-- CI uses local fixtures without website credentials. Do not publish imported upstream files, WASM or build artifacts from Actions.
+- CI uses local fixtures without website credentials. Do not publish imported upstream files or WASM. The npm release workflow may publish only the inspected package of project-owned compiled JavaScript and documentation.

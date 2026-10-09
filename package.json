@@ -1,12 +1,19 @@
 {
   "name": "web-ai-mcp",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
   "type": "module",
   "description": "Multi-provider-ready MCP with DeepSeek Web as the only implemented provider",
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "bin": { "web-ai-mcp": "dist/index.js" },
+  "files": [
+    "dist/index.js", "dist/core/*.js", "dist/tools/*.js", "dist/providers/index.js",
+    "dist/providers/deepseek/*.js", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
+    "CONTRIBUTING.md", "AGENTS.md", "docs/", ".env.example"
+  ],
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
+  "keywords": ["mcp", "deepseek", "deepseek-web", "codex", "claude-code"],
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12.0"
   },
   "scripts": {
     "setup:upstream": "node scripts/sync-upstream.mjs",
@@ -16,7 +23,9 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "smoke:local": "node scripts/smoke-mcp.mjs",
-    "smoke:live": "node scripts/smoke-mcp.mjs --live"
+    "smoke:live": "node scripts/smoke-mcp.mjs --live",
+    "smoke:package": "node scripts/smoke-package.mjs",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

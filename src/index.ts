@@ -4,10 +4,29 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { ProviderRegistry } from "./core/registry.js";
 import { SessionStore, sessionTtlMs } from "./core/session-store.js";
 import { resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { parseArgs } from "node:util";
+import { loadPowWasm } from "./providers/deepseek/wasm.js";
 import { registerProviders } from "./providers/index.js";
 import { registerDeepSeekTools } from "./tools/deepseek.js";
 
 async function main(): Promise<void> {
+  const { values } = parseArgs({ options: {
+    help: { type: "boolean", short: "h" }, version: { type: "boolean", short: "v" },
+    setup: { type: "boolean" }, "env-file": { type: "string" }
+  } });
+  const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+  if (values.help) {
+    console.log("web-ai-mcp [--env-file /absolute/path/.env] [--setup] [--version]\n\nNo options: start the local stdio MCP server. Requires DEEPSEEK_USER_TOKEN.\n--setup: download and verify pinned PoW WASM in local cache; no website credentials required.\n--env-file: load local configuration (existing environment variables take precedence).\nFirst startup downloads WASM if no local file/cache exists; see THIRD_PARTY_NOTICES.md.");
+    return;
+  }
+  if (values.version) { console.log(version); return; }
+  if (values["env-file"]) process.loadEnvFile(resolve(values["env-file"]));
+  if (values.setup) {
+    await loadPowWasm();
+    console.error("[web-ai-mcp] Pinned PoW WASM is ready.");
+    return;
+  }
   const registry = new ProviderRegistry();
   registerProviders(registry);
   await registry.initializeAll();
@@ -18,7 +37,7 @@ async function main(): Promise<void> {
     resolve(process.env.WEB_AI_SESSION_STORE_PATH || resolve(projectRoot, ".web-ai-mcp/sessions.json"))
   );
 
-  const server = new McpServer({ name: "web-ai-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "web-ai-mcp", version });
   registerDeepSeekTools(server, registry.get("deepseek"), sessions);
 
   server.tool(
