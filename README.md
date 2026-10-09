@@ -8,7 +8,7 @@
 
 适用于咨询代码、比较方案、持续讨论项目的场景。当前提供本地 **stdio MCP server**，仅实现 DeepSeek Web；Doubao 和其他网站仍是扩展预留。
 
-> **状态：v0.1.1，npm 发行准备中。** 项目自身代码采用 MIT，提供 npm/npx 入口及自动发布工作流；首次 registry 发布仍需维护者完成 npm 授权。以下 npx 配置在包发布后可用。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
+> **状态：npm 已发行，当前发行版本 v0.1.2。** 项目自身代码采用 MIT，支持 npm/npx 安装与 GitHub Release 自动发布（OIDC，无长期 npm token）。首次版本 v0.1.1 已完成 registry 发布；v0.1.2 更新发行说明。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
 
 ## 目录
 
@@ -46,10 +46,10 @@
 
 需要 Node.js **20.12 或以上**、npm，以及访问 npm、GitHub 原始文件和 DeepSeek 网站的网络，建议使用受支持的 Node.js LTS。npm 包已经编译，不需要 Git、克隆项目或手动构建。
 
-包发布后，先准备一次 PoW WASM（不需要网站 token）：
+先准备一次 PoW WASM（不需要网站 token）：
 
 ```bash
-npx -y web-ai-mcp@0.1.1 --setup
+npx -y web-ai-mcp@0.1.2 --setup
 ```
 
 首次启动也会自动准备；显式执行 `--setup` 可避免客户端下载时间叠加 MCP 启动超时。WASM 从固定上游提交下载到本机缓存并校验 SHA-256，不写入 npm 安装目录，也不随包分发。后续版本更新请明确修改配置中的版本号。
@@ -57,7 +57,7 @@ npx -y web-ai-mcp@0.1.1 --setup
 可选全局安装：
 
 ```bash
-npm install -g web-ai-mcp@0.1.1
+npm install -g web-ai-mcp@0.1.2
 web-ai-mcp --setup
 ```
 
@@ -136,12 +136,12 @@ Node.js 会优先使用进程中已有的同名环境变量。如果更新 `.env
 
 ### Codex
 
-包发布后，在 `~/.codex/config.toml` 添加 npx 配置，保留已有内容：
+在 `~/.codex/config.toml` 添加 npx 配置，保留已有内容：
 
 ```toml
 [mcp_servers.web-ai-mcp]
 command = "npx"
-args = ["-y", "web-ai-mcp@0.1.1", "--env-file", "/absolute/path/to/web-ai.env"]
+args = ["-y", "web-ai-mcp@0.1.2", "--env-file", "/absolute/path/to/web-ai.env"]
 startup_timeout_sec = 60
 tool_timeout_sec = 180
 ```
@@ -149,7 +149,7 @@ tool_timeout_sec = 180
 也可以注册：
 
 ```bash
-codex mcp add web-ai-mcp -- npx -y web-ai-mcp@0.1.1 --env-file /absolute/path/to/web-ai.env
+codex mcp add web-ai-mcp -- npx -y web-ai-mcp@0.1.2 --env-file /absolute/path/to/web-ai.env
 ```
 
 源码安装的替代配置如下，不要与 npx 配置重复定义同名表：
@@ -189,7 +189,7 @@ DEEPSEEK_TIMEOUT = "120000"
 
 ### Claude Code
 
-包发布后，在要使用工具的项目根目录添加或合并 `.mcp.json`：
+在要使用工具的项目根目录添加或合并 `.mcp.json`：
 
 ```json
 {
@@ -198,7 +198,7 @@ DEEPSEEK_TIMEOUT = "120000"
       "type": "stdio",
       "command": "npx",
       "args": [
-        "-y", "web-ai-mcp@0.1.1",
+        "-y", "web-ai-mcp@0.1.2",
         "--env-file", "/absolute/path/to/web-ai.env"
       ]
     }
@@ -360,7 +360,7 @@ Windows JSON 路径可使用正斜杠（如 `C:/Projects/web-ai-mcp/dist/index.j
 | --- | --- |
 | `setup:upstream` 下载失败 | 检查 GitHub 访问和本机 Git / 代理配置，恢复网络后重新执行；不要跳过 WASM 导入 |
 | `Missing upstream WASM` / `pow_unavailable` | 在仓库根目录依次执行 `npm run setup:upstream`、`npm run build` |
-| npx 的 WASM 下载或校验失败 | 检查 `raw.githubusercontent.com` 访问，执行 `npx -y web-ai-mcp@0.1.1 --setup`；或指定正确的本机 `WEB_AI_WASM_PATH`。损坏文件保留，不会自动覆盖 |
+| npx 的 WASM 下载或校验失败 | 检查 `raw.githubusercontent.com` 访问，执行 `npx -y web-ai-mcp@0.1.2 --setup`；或指定正确的本机 `WEB_AI_WASM_PATH`。损坏文件保留，不会自动覆盖 |
 | `npx` 返回 npm 404 | 核对维护者是否完成首次发布及包名/版本；发布准备阶段请使用源码安装 |
 | `Missing DEEPSEEK_USER_TOKEN` | 检查 `.env` 是否填好、启动参数是否显式传入 `--env-file`；或检查客户端环境变量 |
 | 本地测试通过，真实聊天失败 | 本地测试使用模拟网站，不验证账号权限、登录状态或当前网站兼容性 |
