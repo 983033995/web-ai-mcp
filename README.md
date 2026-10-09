@@ -40,9 +40,9 @@
 
 ## 快速开始
 
-![三步开始使用：安装并构建，配置本人网站 token 与本地 stdio 客户端，再通过命名会话开始聊天和续聊；上传文件须配置允许目录。](docs/images/quickstart.png)
+![三步开始使用：准备 Node.js 和 npx，在客户端 env 中配置本人网站 token，再通过命名会话开始聊天和续聊；无需克隆或构建。](docs/images/quickstart.svg)
 
-### 1. 安装与构建
+### 1. 准备运行环境
 
 需要 Node.js **20.12 或以上**、npm，以及访问 npm、GitHub 原始文件和 DeepSeek 网站的网络，建议使用受支持的 Node.js LTS。npm 包已经编译，不需要 Git、克隆项目或手动构建。
 
@@ -54,30 +54,7 @@ npx -y web-ai-mcp@0.1.2 --setup
 
 首次启动也会自动准备；显式执行 `--setup` 可避免客户端下载时间叠加 MCP 启动超时。WASM 从固定上游提交下载到本机缓存并校验 SHA-256，不写入 npm 安装目录，也不随包分发。后续版本更新请明确修改配置中的版本号。
 
-可选全局安装：
-
-```bash
-npm install -g web-ai-mcp@0.1.2
-web-ai-mcp --setup
-```
-
-开发或首次发布前，仍可通过源码安装（需要 Git）：
-
-```bash
-git clone https://github.com/983033995/web-ai-mcp.git
-cd web-ai-mcp
-npm install
-npm run setup:upstream
-npm run build
-npm test
-npm run smoke:local
-```
-
-请在仓库根目录执行命令。`setup:upstream` 从[上游仓库](https://github.com/booleamu/deepseek-mcp-server)的固定提交 `f29e0de85fbe433c6d371b2649df9f0366f007f8` 导入 Web 协议参考源和 PoW WASM；这些文件不随本仓库提交。运行时使用本项目的 transport / SSE 实现及本机导入的 WASM。
-
-`smoke:local` 使用本地模拟网站，验证聊天、续聊、思考、上传和会话管理，**不需要真实 token，不访问 DeepSeek**。
-
-npm 安装不会执行下载脚本；仅在 `--setup` 或服务初始化缺少本机 WASM 时下载。可通过 `WEB_AI_WASM_PATH` 指定同哈希的本机文件。第三方来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+npx 会自动安装已编译的包，不需要克隆项目或运行构建命令。npm 安装不执行下载脚本；仅在 `--setup` 或服务初始化缺少本机 WASM 时下载。可通过 `WEB_AI_WASM_PATH` 指定同哈希的本机文件，来源说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ### 2. 获取本人网站凭据
 
@@ -87,36 +64,36 @@ npm 安装不会执行下载脚本；仅在 `--setup` 或服务初始化缺少�
 
 这是网站登录凭据，**不是** DeepSeek 开放平台 API key。网站可能调整存储形式；若找不到该字段，不要把整份浏览器存储、Cookie 或请求头发到 Issue 中。
 
-### 3. 配置本机 `.env`
+### 3. 直接在 MCP 配置中填写参数（推荐）
 
-使用 npx 时，在你选择的本机私有位置用编辑器创建 `.env`，例如 `/absolute/path/to/web-ai.env`。源码安装可以复制模板；已有 `.env` 时直接编辑，保留原配置：
+**不需要创建 `.env` 文件。** 在支持 `mcpServers` 的客户端配置中，添加 `web-ai-mcp`，把网站 token 放在 `env` 中即可。最小可用配置：
 
-```bash
-cp .env.example .env
+```json
+{
+  "mcpServers": {
+    "web-ai-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "web-ai-mcp@0.1.2"],
+      "env": {
+        "DEEPSEEK_USER_TOKEN": "YOUR_OWN_DEEPSEEK_WEB_TOKEN"
+      }
+    }
+  }
+}
 ```
 
-最小配置如下，占位值必须替换：
+将 token 占位值替换为本人网站 token。如果已有 `mcpServers`，只合并其中的 `web-ai-mcp` 项，不覆盖其他服务。Codex 使用 TOML，完整示例见下一节。
 
-```dotenv
-DEEPSEEK_USER_TOKEN=YOUR_OWN_DEEPSEEK_WEB_TOKEN
-WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
-```
+| 配置位置 | 填什么 | 例子 |
+| --- | --- | --- |
+| `command` / `args` | 启动服务的命令、包名和 CLI 选项 | `npx`、`-y`、`web-ai-mcp@0.1.2` |
+| `env` | 服务启动时的配置，值都用字符串 | `DEEPSEEK_USER_TOKEN`、`WEB_AI_PROJECT_ROOT` |
+| 每次工具调用的 JSON | 本轮问题、会话选择或文件列表 | `message`、`conversation_name`、`file_paths` |
 
-`WEB_AI_PROJECT_ROOT` 是**正在讨论的项目**目录，可以与本 MCP 仓库不同。建议固定它，避免客户端工作目录变化后找不到原会话。在该项目的 `.gitignore` 中加入：
+不要把 token、上传目录等自定义键直接放在 `web-ai-mcp` 顶层，也不用把 token 放到 `args` 中。`env` 由客户端传给服务，当前 v0.1.2 已支持，无需升级。
 
-```gitignore
-.web-ai-mcp/
-```
-
-需要文件分析时，额外配置允许上传的目录，例如 macOS / Linux：
-
-```dotenv
-WEB_AI_ALLOWED_ROOTS=/absolute/path/to/your-project/docs:/absolute/path/to/review-files
-```
-
-Windows 的目录分隔符是 `;`，例如 `C:\Projects\demo\docs;D:\ReviewFiles`。仅允许必要的目录；留空则禁止上传。
-
-源码仓库已忽略 `.env`；在其他项目创建秘密文件时也要排除 Git 跟踪。它仍是本机明文秘密文件，不要提交、截图或粘贴 token 到聊天、日志或 Issue。
+真实 token 只能保存在本机私有配置中，不要提交含 token 的 `.mcp.json` 或 `.codex/config.toml`。要共享项目配置时，使用下文的环境变量转发或可选 `.env` 方式。
 
 ### 4. 连接客户端并开始使用
 
@@ -128,68 +105,11 @@ Windows 的目录分隔符是 `;`，例如 `C:\Projects\demo\docs;D:\ReviewFiles
 
 ## 接入 MCP 客户端
 
-MCP 客户端会启动并管理服务进程，无需另外常驻运行 `npm start`。将示例中的 `/absolute/path/to/web-ai-mcp` 和项目路径替换为实际**绝对路径**。
+选择你使用的客户端示例即可，不需要同时配置多种方式。客户端会启动和管理服务进程，无需另外运行 `npm start`；修改 `env` 后重启 MCP 连接。
 
-**服务不会自动查找 `.env`。** npx 入口支持 `--env-file /绝对路径`，源码启动也可使用 Node.js 的 `--env-file`；或者由客户端通过环境变量提供配置。修改 token 或配置后，需要重启 MCP 服务或重新连接客户端。
+### JSON 配置：Claude Code 与同类客户端
 
-Node.js 会优先使用进程中已有的同名环境变量。如果更新 `.env` 后仍使用旧配置，检查客户端运行环境是否还注入了旧值。加载规则见 [Node.js CLI 文档](https://nodejs.org/api/cli.html#--env-filefile)。
-
-### Codex
-
-在 `~/.codex/config.toml` 添加 npx 配置，保留已有内容：
-
-```toml
-[mcp_servers.web-ai-mcp]
-command = "npx"
-args = ["-y", "web-ai-mcp@0.1.2", "--env-file", "/absolute/path/to/web-ai.env"]
-startup_timeout_sec = 60
-tool_timeout_sec = 180
-```
-
-也可以注册：
-
-```bash
-codex mcp add web-ai-mcp -- npx -y web-ai-mcp@0.1.2 --env-file /absolute/path/to/web-ai.env
-```
-
-源码安装的替代配置如下，不要与 npx 配置重复定义同名表：
-
-```toml
-[mcp_servers.web-ai-mcp]
-command = "node"
-args = ["--env-file=/absolute/path/to/web-ai-mcp/.env", "/absolute/path/to/web-ai-mcp/dist/index.js"]
-tool_timeout_sec = 180
-```
-
-也可以通过 Codex CLI 注册，选择一种方式即可：
-
-```bash
-codex mcp add web-ai-mcp -- node --env-file=/absolute/path/to/web-ai-mcp/.env /absolute/path/to/web-ai-mcp/dist/index.js
-codex mcp list
-```
-
-CLI 注册后，可在配置中设置 `tool_timeout_sec`。深度思考或大文件可能耗时较长，应让客户端超时大于 `DEEPSEEK_TIMEOUT`；仅增大客户端超时不会改变服务默认的 60 秒超时。
-
-如果已通过安全方式把凭据注入 Codex 的运行环境，可以改用环境变量转发，省去 `--env-file`：
-
-```toml
-[mcp_servers.web-ai-mcp]
-command = "node"
-args = ["/absolute/path/to/web-ai-mcp/dist/index.js"]
-env_vars = ["DEEPSEEK_USER_TOKEN"]
-tool_timeout_sec = 180
-
-[mcp_servers.web-ai-mcp.env]
-WEB_AI_PROJECT_ROOT = "/absolute/path/to/your-project"
-WEB_AI_ALLOWED_ROOTS = "/absolute/path/to/your-project/docs"
-DEEPSEEK_TIMEOUT = "120000"
-```
-
-以上是替代配置，不要重复定义同名 TOML 表。`env_vars` 转发的是 Codex 进程已获得的变量；从桌面启动的客户端未必继承终端里的 `export`。参考 [Codex 官方 MCP 文档](https://developers.openai.com/codex/mcp)。
-
-### Claude Code
-
-在要使用工具的项目根目录添加或合并 `.mcp.json`：
+只聊天时，使用上面的最小配置。需要项目续聊、文件分析或更长超时时，在**同一个 `env` 对象**中加入对应变量。常用完整配置如下：
 
 ```json
 {
@@ -197,22 +117,81 @@ DEEPSEEK_TIMEOUT = "120000"
     "web-ai-mcp": {
       "type": "stdio",
       "command": "npx",
-      "args": [
-        "-y", "web-ai-mcp@0.1.2",
-        "--env-file", "/absolute/path/to/web-ai.env"
-      ]
+      "args": ["-y", "web-ai-mcp@0.1.2"],
+      "env": {
+        "DEEPSEEK_USER_TOKEN": "YOUR_OWN_DEEPSEEK_WEB_TOKEN",
+        "WEB_AI_PROJECT_ROOT": "/absolute/path/to/your-project",
+        "WEB_AI_ALLOWED_ROOTS": "/absolute/path/to/your-project/docs",
+        "DEEPSEEK_TIMEOUT": "120000",
+        "WEB_AI_SESSION_TTL_MINUTES": "0"
+      }
     }
   }
 }
 ```
 
-按客户端提示批准项目 MCP 配置并重新连接。配置只保存本机文件路径，真实 token 保留在被忽略的 `.env` 中。参考 [Claude Code MCP 文档](https://code.claude.com/docs/en/mcp)。
+| 参数 | 必填吗 | 怎样填写 |
+| --- | --- | --- |
+| `DEEPSEEK_USER_TOKEN` | 必填 | 本人网站 token，不带 `Bearer ` 前缀 |
+| `WEB_AI_PROJECT_ROOT` | 推荐 | 正在讨论的项目绝对路径；用于固定会话存储位置，不是 npm 包安装路径 |
+| `WEB_AI_ALLOWED_ROOTS` | 文件分析时才需要 | 允许上传的目录；只聊天可删除这一行或设为 `""` |
+| `DEEPSEEK_TIMEOUT` | 可选 | 整轮网站操作超时，毫秒；默认 `"60000"`，示例为 120 秒 |
+| `WEB_AI_SESSION_TTL_MINUTES` | 可选 | 默认 `"0"`，不设本地会话过期；正数表示闲置分钟数 |
 
-### 其他支持 stdio 的客户端
+目录与 token 占位值都需要替换。macOS / Linux 多个上传目录用 `:` 分隔，Windows 用 `;`；Windows 路径推荐 `C:/Projects/demo/docs`，也可以把反斜杠写成 `\\`。服务不会自动上传项目目录，仅在调用文件工具并选中文件时上传。
 
-使用相同 npx 启动参数，或源码入口的 Node.js 参数。配置文件位置、外层字段及启用方式以客户端文档为准，不能将这里的配置当作 HTTP MCP 地址。
+把 `.web-ai-mcp/` 加入所讨论项目的 `.gitignore`，不要共享不同账号的会话存储。客户端如果有独立的工具超时选项，应大于 `DEEPSEEK_TIMEOUT`；这项属于客户端设置，不能代替服务的超时变量。
 
-Windows JSON 路径可使用正斜杠（如 `C:/Projects/web-ai-mcp/dist/index.js`），或将反斜杠写成 `\\`。桌面客户端找不到 `node` 时，将 `command` 改为 Node.js 可执行文件的绝对路径。
+Claude Code 的项目级文件是 `.mcp.json`；含真实 token 的配置不要提交。若需要共享这个文件，可将 token 值写成 `"${DEEPSEEK_USER_TOKEN}"`，由 Claude Code 的运行环境注入；变量替换是否受支持以各客户端文档为准，不要把这种写法原样套用到所有客户端。首次使用按提示批准项目 MCP，参考 [Claude Code MCP 文档](https://code.claude.com/docs/en/mcp)。
+
+### Codex：TOML 配置
+
+在本机 `~/.codex/config.toml` 中添加，保留已有内容：
+
+```toml
+[mcp_servers.web-ai-mcp]
+command = "npx"
+args = ["-y", "web-ai-mcp@0.1.2"]
+startup_timeout_sec = 60
+tool_timeout_sec = 180
+
+[mcp_servers.web-ai-mcp.env]
+DEEPSEEK_USER_TOKEN = "YOUR_OWN_DEEPSEEK_WEB_TOKEN"
+WEB_AI_PROJECT_ROOT = "/absolute/path/to/your-project"
+WEB_AI_ALLOWED_ROOTS = "/absolute/path/to/your-project/docs"
+DEEPSEEK_TIMEOUT = "120000"
+WEB_AI_SESSION_TTL_MINUTES = "0"
+```
+
+只聊天时可删除 `WEB_AI_ALLOWED_ROOTS`。`startup_timeout_sec` 和 `tool_timeout_sec` 是 Codex 的超时选项，单位秒；`DEEPSEEK_TIMEOUT` 是本服务的变量，单位毫秒。
+
+如果不想把 token 写入配置文件，可在上面的主表增加 `env_vars = ["DEEPSEEK_USER_TOKEN"]`，并删除 `[mcp_servers.web-ai-mcp.env]` 中的 token 行；这样 Codex 转发自己运行环境中的变量。从桌面启动的 Codex 未必继承终端里的 `export`。参考 [Codex 官方 MCP 文档](https://developers.openai.com/codex/mcp)。
+
+### 可选：使用 `.env` 文件
+
+只有你希望把参数集中保存在独立本机文件中时才需要此方式。用编辑器创建 `/absolute/path/to/web-ai.env`：
+
+```dotenv
+DEEPSEEK_USER_TOKEN=YOUR_OWN_DEEPSEEK_WEB_TOKEN
+WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
+```
+
+将 JSON 配置中的启动参数改为下面的值，并删除重复的 `env` 参数：
+
+```json
+{
+  "args": [
+    "-y", "web-ai-mcp@0.1.2",
+    "--env-file", "/absolute/path/to/web-ai.env"
+  ]
+}
+```
+
+这段仅用于替换已有服务的 `args` 字段，不是完整客户端配置。其他可选变量仍可放进文件中。服务不会自动查找 `.env`；只有传入 `--env-file` 才加载。若同时使用 `env` 和文件，同名参数以进程环境中的值为准，见 [Node.js 加载规则](https://nodejs.org/api/cli.html#--env-filefile)。
+
+### 其他客户端与启动问题
+
+使用相同 npx 启动参数和 `env`；配置文件位置、外层字段及启用方式以客户端文档为准。这是本机 stdio 配置，不是 HTTP MCP 地址。桌面客户端找不到 `npx` 时，把 `command` 换成本机 npx 可执行文件路径；某些 Windows 客户端需要填写 `npx.cmd`。
 
 ## 工具与调用示例
 
@@ -361,8 +340,8 @@ Windows JSON 路径可使用正斜杠（如 `C:/Projects/web-ai-mcp/dist/index.j
 | `setup:upstream` 下载失败 | 检查 GitHub 访问和本机 Git / 代理配置，恢复网络后重新执行；不要跳过 WASM 导入 |
 | `Missing upstream WASM` / `pow_unavailable` | 在仓库根目录依次执行 `npm run setup:upstream`、`npm run build` |
 | npx 的 WASM 下载或校验失败 | 检查 `raw.githubusercontent.com` 访问，执行 `npx -y web-ai-mcp@0.1.2 --setup`；或指定正确的本机 `WEB_AI_WASM_PATH`。损坏文件保留，不会自动覆盖 |
-| `npx` 返回 npm 404 | 核对维护者是否完成首次发布及包名/版本；发布准备阶段请使用源码安装 |
-| `Missing DEEPSEEK_USER_TOKEN` | 检查 `.env` 是否填好、启动参数是否显式传入 `--env-file`；或检查客户端环境变量 |
+| `npx` 返回 npm 404 | 核对包名、版本和 registry；推荐官方 https://registry.npmjs.org，镜像可能有同步延迟 |
+| `Missing DEEPSEEK_USER_TOKEN` | 检查服务配置的 `env.DEEPSEEK_USER_TOKEN`，修改后重启；仅在选择文件方式时检查 `--env-file` |
 | 本地测试通过，真实聊天失败 | 本地测试使用模拟网站，不验证账号权限、登录状态或当前网站兼容性 |
 | `authentication_error` / HTTP 401 / 网站 code 40003 | 在本人账号重新登录，更新本机 token 后重启 MCP；同一账号可以保留原存储 |
 | HTTP 403 / `access_denied` | 在浏览器检查网站访问状态，处理网站要求；不绕过 CAPTCHA 或 WAF |
@@ -379,6 +358,22 @@ Windows JSON 路径可使用正斜杠（如 `C:/Projects/web-ai-mcp/dist/index.j
 直接在终端运行服务后等待输入是正常现象：stdio MCP 由客户端通过 stdin/stdout 通信，没有网页界面。普通状态日志输出到 stderr，stdout 专供 MCP JSON-RPC。
 
 ## 开发与验证
+
+### 源码安装与开发
+
+普通 npx 用户可以跳过本节。参与开发时需要 Git，在仓库根目录执行：
+
+```bash
+git clone https://github.com/983033995/web-ai-mcp.git
+cd web-ai-mcp
+npm install
+npm run setup:upstream
+npm run build
+npm test
+npm run smoke:local
+```
+
+`setup:upstream` 导入固定提交的协议参考源和 PoW WASM，文件不提交到 Git。使用源码入口时，将客户端的 `command` 改为 `node`，`args` 改为 `["/absolute/path/to/web-ai-mcp/dist/index.js"]`，并保留相同的 `env` 配置。
 
 | 命令 | 用途 |
 | --- | --- |
@@ -430,7 +425,7 @@ node --env-file=.env scripts/smoke-mcp.mjs --live --files
 
 ## 项目结构与文档
 
-架构概览见页首配图，完整调用关系见[架构文档](docs/ARCHITECTURE.md)。配图的可编辑 SVG 源文件位于 [`docs/images/`](docs/images/)，PNG 用于 README 展示。
+架构概览见页首配图，完整调用关系见[架构文档](docs/ARCHITECTURE.md)。配图与可编辑 SVG 源文件位于 [`docs/images/`](docs/images/)。
 
 | 路径 | 职责 |
 | --- | --- |
