@@ -2,6 +2,8 @@
 
 包名：`web-ai-mcp`，准备发布版本：`0.1.1`。项目自身代码采用 MIT。首次 npm 发布与账号授权尚未完成；在 registry 出现该版本前，不宣称 npx 安装已可用。
 
+2026-10-09：[PR #7](https://github.com/983033995/web-ai-mcp/pull/7) 已合并，Node.js 20/22/24 CI 与[发布工作流验证模式](https://github.com/983033995/web-ai-mcp/actions/runs/37926416687)均通过，正式 Publish 步骤尚未执行。
+
 ## 包的边界
 
 `package.json` 的 bin 指向 `dist/index.js`，发布文件使用白名单。仅包含项目自身 JavaScript、说明与模板；上游参考源、WASM、source maps、凭据和会话数据都被排除。`prepack` 构建源码，不执行安装期下载。
