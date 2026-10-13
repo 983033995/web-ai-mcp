@@ -9,3 +9,5 @@ Before any implementation:
 4. Declare only verified capability flags, add tests, then register tools explicitly.
 
 Never claim Doubao is supported by the current DeepSeek-only release.
+
+Feasibility (2026-10-13): **default no-go** for implementation. Details, risks, and exit criteria: [docs/adr/0001-gemini-doubao-web-feasibility.md](../../../docs/adr/0001-gemini-doubao-web-feasibility.md).

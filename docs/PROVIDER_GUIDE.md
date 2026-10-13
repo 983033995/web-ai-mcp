@@ -17,7 +17,9 @@ Providers own their upstream authentication, response parsing, challenge logic a
 Only secret-free lineage belongs in RemoteSession: it may now be persisted. Never include credentials, dialogue or uploaded content. Use ProviderError.sessionUncertain for ambiguous writes; explicit rejections leave the last committed parent intact. ChatRequest.signal propagates MCP cancellation.
 
 ## To add Doubao someday
-1. Research whether Doubao provides an authorized interface and whether web automation is permitted; record terms and limitations.
+Research conclusion (2026-10-13): **default no-go** for Doubao Web and Gemini Web as free webpage providers until spike exit criteria are met. See [ADR 0001](adr/0001-gemini-doubao-web-feasibility.md).
+
+1. Research whether Doubao provides an authorized interface and whether web automation is permitted; record terms and limitations (ADR 0001 records the current no-go).
 2. Implement src/providers/doubao/index.ts (only when there is real access and tests).
 3. Keep Doubao cookies, authentication, web transport and session fields inside that directory.
 4. Explicitly register in src/providers/index.ts and register proven MCP tools from src/index.ts.
