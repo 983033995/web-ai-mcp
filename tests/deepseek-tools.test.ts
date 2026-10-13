@@ -123,6 +123,52 @@ test("MCP file analysis fails closed, enforces real paths and quotas, and allows
   assert.equal(f.calls[0].previous.lastMessageId, 10);
 });
 
+test("ENOENT file errors omit absolute paths; relative WEB_AI_ALLOWED_ROOTS are rejected", async (t) => {
+  const f = await fixture();
+  const root = await mkdtemp(resolve(".validation-redact-"));
+  const original = process.env.WEB_AI_ALLOWED_ROOTS;
+  t.after(async () => {
+    if (original === undefined) delete process.env.WEB_AI_ALLOWED_ROOTS; else process.env.WEB_AI_ALLOWED_ROOTS = original;
+    await f.client.close(); await f.server.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  process.env.WEB_AI_ALLOWED_ROOTS = "relative-docs";
+  const relativeRoots = await f.call("deepseek_analyze_files", {
+    file_paths: [join(root, "any.txt")],
+  });
+  assert.equal(relativeRoots.error, true);
+  assert.match(relativeRoots.text, /WEB_AI_ALLOWED_ROOTS entries must be absolute paths/);
+  assert.ok(!relativeRoots.text.includes(resolve("relative-docs")));
+  assert.ok(!relativeRoots.text.includes(process.cwd() + "/relative-docs"));
+
+  process.env.WEB_AI_ALLOWED_ROOTS = root + delimiterForTest() + "also-relative";
+  const mixed = await f.call("deepseek_analyze_files", { file_paths: [join(root, "any.txt")] });
+  assert.equal(mixed.error, true);
+  assert.match(mixed.text, /WEB_AI_ALLOWED_ROOTS entries must be absolute paths/);
+
+  process.env.WEB_AI_ALLOWED_ROOTS = root;
+  const missingName = "missing-does-not-exist.txt";
+  const missing = join(root, missingName);
+  const missingResult = await f.call("deepseek_analyze_files", { file_paths: [missing] });
+  assert.equal(missingResult.error, true);
+  assert.match(missingResult.text, /File not found: missing-does-not-exist\.txt/);
+  assert.ok(!missingResult.text.includes(root), missingResult.text);
+  assert.ok(!missingResult.text.includes(missing), missingResult.text);
+  assert.ok(!missingResult.text.includes("realpath"), missingResult.text);
+
+  const outsider = join("/tmp", `web-ai-missing-${Date.now()}`, "secret.txt");
+  const outsideMissing = await f.call("deepseek_analyze_files", { file_paths: [outsider] });
+  assert.equal(outsideMissing.error, true);
+  assert.ok(!outsideMissing.text.includes(outsider), outsideMissing.text);
+  assert.ok(!outsideMissing.text.includes("/tmp/web-ai-missing-"), outsideMissing.text);
+  assert.match(outsideMissing.text, /File not found: secret\.txt/);
+});
+
+function delimiterForTest(): string {
+  return process.platform === "win32" ? ";" : ":";
+}
+
 test("named project conversation, explicit ID and default selection resume after restart", async (t) => {
   const root = await mkdtemp(resolve(".validation-project-"));
   t.after(() => rm(root, { recursive: true, force: true }));

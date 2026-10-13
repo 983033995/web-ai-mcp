@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { realpath, open } from "node:fs/promises";
 import { constants } from "node:fs";
-import { basename, delimiter, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, delimiter, isAbsolute, relative, sep } from "node:path";
 import type { ProviderResult, WebAIProvider, FileInput } from "../core/provider.js";
 import { ProviderError } from "../core/provider.js";
 import type { SessionStore } from "../core/session-store.js";
@@ -17,6 +17,66 @@ function redact(error: unknown): string {
   const token = process.env.DEEPSEEK_USER_TOKEN || "";
   if (token) message = message.replaceAll(token, "[REDACTED]");
   return error instanceof ProviderError ? `[${error.code}] ${message}` : message;
+}
+
+/** Strip quoted absolute paths that Node errno messages often embed. */
+function stripAbsolutePaths(message: string): string {
+  return message.replace(
+    /(['"])((?:\/|[A-Za-z]:[\\/])[^'"]+)\1/g,
+    (_match, quote: string, absolute: string) => quote + (basename(absolute) || "[path]") + quote
+  );
+}
+
+function redactFileError(error: unknown): string {
+  return stripAbsolutePaths(redact(error));
+}
+
+function isNodeErrno(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && typeof (error as NodeJS.ErrnoException).code === "string";
+}
+
+/** Map filesystem failures to basename-only messages; never echo absolute paths. */
+function mapFsError(error: unknown, subjectPath: string): Error {
+  const name = basename(subjectPath) || "[path]";
+  if (isNodeErrno(error)) {
+    switch (error.code) {
+      case "ENOENT":
+        return new Error("File not found: " + name);
+      case "EACCES":
+      case "EPERM":
+        return new Error("Permission denied: " + name);
+      case "ELOOP":
+        return new Error("Too many symbolic links: " + name);
+      case "ENOTDIR":
+        return new Error("Path component is not a directory: " + name);
+      case "EISDIR":
+        return new Error("Expected a regular file: " + name);
+      default:
+        return new Error("Unable to access file: " + name + " (" + error.code + ")");
+    }
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+async function realpathSafe(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch (error) {
+    throw mapFsError(error, path);
+  }
+}
+
+function parseAllowedRoots(raw: string): string[] {
+  const allowlist = raw.split(delimiter).map((p) => p.trim()).filter(Boolean);
+  if (!allowlist.length) {
+    throw new Error("Set WEB_AI_ALLOWED_ROOTS to enable local file analysis");
+  }
+  for (const entry of allowlist) {
+    if (!isAbsolute(entry)) {
+      throw new Error("WEB_AI_ALLOWED_ROOTS entries must be absolute paths");
+    }
+  }
+  return allowlist;
 }
 
 function formatAnswer(result: ProviderResult, key?: string, showReasoning = false) {
@@ -140,25 +200,26 @@ export function registerDeepSeekTools(
     async ({ file_paths, instruction, thinking }, extra) => {
       try {
         if (!provider.analyzeFiles) throw new Error("This provider does not support file analysis");
-        const allowlist = (process.env.WEB_AI_ALLOWED_ROOTS || "")
-          .split(delimiter).map((p) => p.trim()).filter(Boolean);
-        if (!allowlist.length) {
-          throw new Error("Set WEB_AI_ALLOWED_ROOTS to enable local file analysis");
-        }
-        const roots = await Promise.all(allowlist.map((p) => realpath(resolve(p))));
+        const allowlist = parseAllowedRoots(process.env.WEB_AI_ALLOWED_ROOTS || "");
+        const roots = await Promise.all(allowlist.map((p) => realpathSafe(p)));
         const files: FileInput[] = [];
         let total = 0;
 
         for (const path of file_paths) {
           extra.signal.throwIfAborted();
           if (!isAbsolute(path)) throw new Error("Only absolute file paths are permitted");
-          const actual = await realpath(path);
+          const actual = await realpathSafe(path);
           const permitted = roots.some((root) => {
             const rel = relative(root, actual);
             return rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel);
           });
           if (!permitted) throw new Error("File outside allowed root: " + basename(actual));
-          const handle = await open(actual, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+          let handle;
+          try {
+            handle = await open(actual, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+          } catch (error) {
+            throw mapFsError(error, path);
+          }
           try {
             const fileStat = await handle.stat();
             if (!fileStat.isFile() || fileStat.size > 10 * 1024 * 1024) {
@@ -186,7 +247,7 @@ export function registerDeepSeekTools(
         }) : undefined;
         return formatAnswer(result, record?.key, false);
       } catch (error) {
-        return textResult("[deepseek file error] " + redact(error), true);
+        return textResult("[deepseek file error] " + redactFileError(error), true);
       }
     }
   );
