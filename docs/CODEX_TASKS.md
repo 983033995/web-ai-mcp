@@ -27,10 +27,10 @@
 - [x] Missing response message IDs return useful content with a nonresumable warning
 
 ## P3: Extensions (not required now)
-- [ ] Research DeepSeek Web Search: actual behavior and permission boundaries
+- [x] Research DeepSeek Web Search: actual behavior and permission boundaries — **no-go / keep disabled** until contract evidence; see [ADR 0001](adr/0001-gemini-doubao-web-feasibility.md)
 - [x] Project-private lineage persistence, stable IDs/names, default binding and non-expiring local sessions (requested 2026-10-08)
 - [ ] Consider Streamable HTTP MCP with authentication
-- [ ] Evaluate Doubao feasibility separately **without implementing an adapter yet**
+- [x] Evaluate Doubao (and Gemini Web) feasibility separately **without implementing an adapter yet** — **default no-go**; see [ADR 0001](adr/0001-gemini-doubao-web-feasibility.md)
 
 ## Codex kickoff prompt
 Read AGENTS.md, README.md, docs/ARCHITECTURE.md, docs/PRD.md, and docs/CODEX_TASKS.md. This is a DeepSeek-Web-only MCP, not CLIProxyAPI. Start with P0 compile/test validation. Only the DeepSeek provider may be active. Respect userToken confidentiality and WEB_AI_ALLOWED_ROOTS. Do not invent capabilities or bypass access controls.

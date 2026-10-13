@@ -51,7 +51,7 @@ Use MCP as the **external consultation interface**, not an OpenAI-compatible mod
 Pin https://github.com/booleamu/deepseek-mcp-server commit **f29e0de85fbe433c6d371b2649df9f0366f007f8**. Setup imports only Web reference source and dependencies (config/types/errors/WASM); it does not copy the official API client or original MCP router. Runtime imports the WASM only and uses project-owned TypeScript transport/parser. See THIRD_PARTY_NOTICES.md. SSE is aggregated into a final response and web search remains disabled.
 
 ## Extension boundary
-Doubao is reserved under src/providers/doubao, with a README explaining the adapter requirements. No invented Doubao endpoints, cookies, or model mappings. Future adapters must pass contract tests before registration.
+Doubao is reserved under src/providers/doubao, with a README explaining the adapter requirements. No invented Doubao endpoints, cookies, or model mappings. Future adapters must pass contract tests before registration. Gemini Web and Doubao Web free-login-state providers are **default no-go** until ADR exit criteria are met; see [ADR 0001](adr/0001-gemini-doubao-web-feasibility.md).
 
 ## Transport decision
 v0.1 uses local stdio only; shared/remote HTTP would require authentication, origin policy, rate control and user isolation.
