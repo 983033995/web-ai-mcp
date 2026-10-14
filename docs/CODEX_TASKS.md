@@ -36,7 +36,7 @@
 - [x] Parse inherited CHUNK_DELTA and block further client writes after CAPTCHA; document that Node HTTP challenges do not automatically appear in the original browser tab
 - [x] Implement requested Doubao expert parameters, separate real thinking containers, and bounded TXT upload/commit/file tools with deterministic tests
 - [x] Verify actual MCP stdio expert answer, separate reasoning and expert-to-quick same-conversation recall
-- [ ] Complete final actual MCP TXT analysis and restart follow-up after website manual verification (latest live probe stopped on captcha_required; no bypass/retry)
+- [x] Complete actual MCP expert thinking, TXT analysis and restart follow-up after manual website verification and fresh request capture (2026-10-14; four-message product stdio probe passed without bypass)
 
 ## Codex kickoff prompt
 Read AGENTS.md, README.md, docs/ARCHITECTURE.md, docs/PRD.md, and docs/CODEX_TASKS.md. This is an own-account stdio Web AI MCP, not CLIProxyAPI. DeepSeek is released; Doubao source integration was explicitly requested and remains experimental. Respect credential confidentiality, WEB_AI_ALLOWED_ROOTS and live-validation limits. Do not invent capabilities or bypass access controls.
