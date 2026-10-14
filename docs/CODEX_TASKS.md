@@ -30,7 +30,13 @@
 - [ ] Research DeepSeek Web Search: actual behavior and permission boundaries
 - [x] Project-private lineage persistence, stable IDs/names, default binding and non-expiring local sessions (requested 2026-10-08)
 - [ ] Consider Streamable HTTP MCP with authentication
-- [ ] Evaluate Doubao feasibility separately **without implementing an adapter yet**
+- [x] Implement requested experimental Doubao pure HTTP transport with deterministic error/session tests and stdio/package fixtures
+- [x] Observe an authenticated Node HTTP complete text reply and verify captured SSE replay (2026-10-14; private credentials not committed)
+- [x] Verify Doubao product HTTP same-conversation follow-up (2026-10-14; earlier CAPTCHA ceased without bypass; original and current configurations both succeeded, exact risk rule unknown)
+- [x] Parse inherited CHUNK_DELTA and block further client writes after CAPTCHA; document that Node HTTP challenges do not automatically appear in the original browser tab
+- [x] Implement requested Doubao expert parameters, separate real thinking containers, and bounded TXT upload/commit/file tools with deterministic tests
+- [x] Verify actual MCP stdio expert answer, separate reasoning and expert-to-quick same-conversation recall
+- [x] Complete actual MCP expert thinking, TXT analysis and restart follow-up after manual website verification and fresh request capture (2026-10-14; four-message product stdio probe passed without bypass)
 
 ## Codex kickoff prompt
-Read AGENTS.md, README.md, docs/ARCHITECTURE.md, docs/PRD.md, and docs/CODEX_TASKS.md. This is a DeepSeek-Web-only MCP, not CLIProxyAPI. Start with P0 compile/test validation. Only the DeepSeek provider may be active. Respect userToken confidentiality and WEB_AI_ALLOWED_ROOTS. Do not invent capabilities or bypass access controls.
+Read AGENTS.md, README.md, docs/ARCHITECTURE.md, docs/PRD.md, and docs/CODEX_TASKS.md. This is an own-account stdio Web AI MCP, not CLIProxyAPI. DeepSeek is released; Doubao source integration was explicitly requested and remains experimental. Respect credential confidentiality, WEB_AI_ALLOWED_ROOTS and live-validation limits. Do not invent capabilities or bypass access controls.
