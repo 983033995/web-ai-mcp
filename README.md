@@ -6,7 +6,7 @@
 
 通过 MCP，让本机 AI 编程助手调用**你自己的 DeepSeek 网页账号**，进行聊天、深度思考、文件分析和多轮讨论。
 
-适用于咨询代码、比较方案、持续讨论项目的场景。当前提供本地 **stdio MCP server**，仅实现 DeepSeek Web；Doubao 和其他网站仍是扩展预留。
+适用于咨询代码、比较方案、持续讨论项目的场景。当前提供本地 **stdio MCP server**。发行版本 v0.1.2 仅实现 DeepSeek Web；当前源码另含实验性 Doubao 纯 HTTP 适配器，已验证本人账号的 Node HTTP 完整回复与同会话续聊，曾遇到暂时人机验证要求，不代表已发行或稳定支持。调查与验证边界见[风控记录](docs/DOUBAO_RISK_INVESTIGATION.md)。
 
 > **状态：npm 已发行，当前发行版本 v0.1.2。** 项目自身代码采用 MIT，支持 npm/npx 安装与 GitHub Release 自动发布（OIDC，无长期 npm token）。首次版本 v0.1.1 已完成 registry 发布；v0.1.2 更新发行说明。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
 
@@ -33,7 +33,8 @@
 | 文件分析 | 已实现，仅允许上传显式授权目录内的文件 |
 | 会话管理 | 已实现，列出或关闭本地会话映射 |
 | 网站搜索 | 未启用，`search_enabled` 固定为 `false` |
-| Doubao / 其他网站 | 未实现，不可调用 |
+| Doubao（当前源码） | 实验性 HTTP 快速/专家聊天、可见思考、TXT 文件分析及同会话续聊；存在网站风控与私有接口变化风险 |
+| 其他网站 | 未实现，不可调用 |
 | HTTP / 远程多用户 MCP | 未实现，仅支持本地 stdio |
 
 本项目不是 DeepSeek 官方 API 客户端、OpenAI 兼容代理或 CLIProxyAPI 插件。它提供咨询工具，不会自行修改代码或执行 DeepSeek 返回的建议，也不提供公共免费 API 服务。
@@ -315,6 +316,56 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 
 模板见 [.env.example](.env.example)。`DEEPSEEK_TIMEOUT` 不覆盖 MCP 客户端自己的超时，文件解析阶段另有最多 30 秒的等待限制。
 
+### 实验性 Doubao 纯 HTTP（仅当前源码）
+
+使用本人豆包网页账号，在开发者工具 Network 中找到自己发出的 `POST /chat/completion`，将 Cookie、完整请求 URL 和 User-Agent **仅保存到本机私有配置**：
+
+```dotenv
+DOUBAO_COOKIE="sessionid=...; passport_csrf_token=...; s_v_web_id=..."
+DOUBAO_CHAT_URL="完整的本人 /chat/completion 请求 URL（包含 query 参数）"
+DOUBAO_USER_AGENT="该请求的 User-Agent"
+DOUBAO_TIMEOUT=60000
+```
+
+URL 是配置占位值，不可直接使用。URL 参数中的 `fp` 必须匹配 Cookie 的 `s_v_web_id`；不使用其他账号的设备参数，不在 Issue、聊天或 Git 中分享 Cookie、签名 URL。服务不自动加载 `.env`，通过 `node dist/index.js --env-file /private/path/.env` 启动。仅配置豆包时无需 DeepSeek token；两者同时配置时都可发现工具。
+
+提供 `doubao_chat`、`doubao_reasoner`、`doubao_analyze_files`、`doubao_sessions_list`、`doubao_session_close`，加上 `webai_providers` 共六个工具。已有其他 Provider 的项目默认会被忽略，不会串用会话；只有回复携带完整可校验 lineage 时才返回可续聊 key，续聊回复必须推进消息索引。
+
+- `doubao_chat` 默认快速模式；传 `mode: "expert"` 或 `thinking: true` 使用已实测的专家思考模式。若同时提供两者，必须一致。`show_reasoning: true` 显示网站返回的可见思考；默认只返回答案。
+- `doubao_reasoner` 固定专家模式，支持本地 ID/名称、`make_default`、`system_prompt` 文本前缀和 `show_reasoning`。
+- `doubao_analyze_files` 接受绝对 `file_paths` 和可选 `instruction`，只支持非空 TXT：最多 5 个、单个 10 MiB、合计 20 MiB。必须配置 `WEB_AI_ALLOWED_ROOTS`。会新建文件分析会话，之后用返回的 key 续聊；`make_default: true` 可设为默认。也可选择专家模式和显示思考。
+
+专家聊天示例：
+
+```json
+{"message":"请推演方案的边界情况。","mode":"expert","show_reasoning":true}
+```
+
+文件分析示例（路径必须在本机已配置的授权目录内）：
+
+```json
+{"file_paths":["/absolute/allowed/path/design.txt"],"instruction":"检查方案的假设与风险。"}
+```
+
+网站搜索仍未启用。专家/思考/文件的协议与产品验收见[能力记录](docs/DOUBAO_CAPABILITY_VALIDATION.md)。
+
+源码测试：`npm run smoke:local` 同时覆盖两种 Provider 的本地 HTTP fixture。自愿向本人网站发送两条测试消息时执行：
+
+```bash
+npx tsx scripts/probe-doubao.ts --env-file /private/path/.env --live
+```
+
+构建后验证真实 MCP 专家、思考、Node TXT 上传及重启后的文件追问（四条非敏感网站消息）：
+
+```bash
+npm run build
+npx tsx scripts/probe-doubao.ts --env-file /private/path/.env --live --features
+```
+
+专家回复可能需要更长时间，建议 `DOUBAO_TIMEOUT=120000`，同时将 MCP 客户端工具超时设为大于该值。
+
+此命令直接调用产品 HTTP Provider 并验证同会话标记回忆；失败返回非零退出码，不输出 Cookie、远端 ID 或正文。验证码要求会阻断该客户端后续聊天请求，直到重启 MCP；原网页不一定显示 HTTP 请求的挑战，须通过官方验证界面处理并用明确授权的 HTTP 探测确认恢复。没有自动签名生成、浏览器回退或消息重试。已有请求上下文可能变化，浏览器成功不保证纯 HTTP 可用；本次调查不能认定签名失效就是此前风控的原因。
+
 ## 会话持久化与恢复
 
 服务把本地 UUID、用户指定的名称、网站会话与父消息关联、时间戳和默认绑定保存在项目私有存储中，**不保存 token、对话正文、文件内容或从消息生成的标题**。列表不暴露网站原始 ID。
@@ -433,7 +484,7 @@ node --env-file=.env scripts/smoke-mcp.mjs --live --files
 | `src/core/` | provider 契约、注册表与私有会话存储 |
 | `src/tools/deepseek.ts` | 工具参数、文件边界与返回格式 |
 | `src/providers/deepseek/` | 网站认证、请求、PoW、SSE 与错误处理 |
-| `src/providers/doubao/` | 尚未实现的扩展说明 |
+| `src/providers/doubao/` | 实验性纯 HTTP 协议、SSE、配置和错误处理 |
 | `scripts/` | 上游导入、WASM 复制与 smoke 验证 |
 | `tests/` | 确定性测试 |
 

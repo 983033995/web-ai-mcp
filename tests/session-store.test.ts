@@ -14,9 +14,15 @@ test("session expiry and provider ownership", () => {
     title: "test"
   });
   assert.equal(store.require(session.key, "deepseek").remote.lastMessageId, 9);
+  store.selectDefault(session.key, "deepseek");
+  assert.equal(store.defaultKey("doubao"), undefined);
+  assert.equal(store.defaultKey("deepseek"), session.key);
   assert.throws(() => store.require(session.key, "doubao"), /another provider/);
+  assert.throws(() => store.delete(session.key, "doubao"), /another provider/);
   now += 101;
   assert.throws(() => store.require(session.key, "deepseek"), /expired/);
+  assert.throws(() => store.delete(session.key, "doubao"), /another provider/);
+  assert.equal(store.delete(session.key, "deepseek"), true);
 });
 
 test("concurrent calls to same session are rejected", async () => {

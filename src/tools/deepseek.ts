@@ -1,9 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { realpath, open } from "node:fs/promises";
-import { constants } from "node:fs";
-import { basename, delimiter, isAbsolute, relative, resolve, sep } from "node:path";
-import type { ProviderResult, WebAIProvider, FileInput } from "../core/provider.js";
+import type { ProviderResult, WebAIProvider } from "../core/provider.js";
+import { readAllowedFiles } from "../core/files.js";
+import { basename } from "node:path";
 import { ProviderError } from "../core/provider.js";
 import type { SessionStore } from "../core/session-store.js";
 
@@ -17,6 +16,11 @@ function redact(error: unknown): string {
   const token = process.env.DEEPSEEK_USER_TOKEN || "";
   if (token) message = message.replaceAll(token, "[REDACTED]");
   return error instanceof ProviderError ? `[${error.code}] ${message}` : message;
+}
+
+function redactFileError(error: unknown): string {
+  return redact(error).replace(/(['"])((?:\/|[A-Za-z]:[\\/])[^'"]+)\1/g,
+    (_match, quote: string, absolute: string) => quote + (basename(absolute) || "[path]") + quote);
 }
 
 function formatAnswer(result: ProviderResult, key?: string, showReasoning = false) {
@@ -42,7 +46,7 @@ export function registerDeepSeekTools(
       const requestedKey = options.conversationId ?? options.key;
       if (requestedKey && options.name) throw new Error("Use conversation_id/session_key or conversation_name, not both");
       return await sessions.exclusive(requestedKey ?? options.name ?? "project-chat", async () => {
-        const selected = requestedKey ?? (options.name ? undefined : sessions.defaultKey());
+        const selected = requestedKey ?? (options.name ? undefined : sessions.defaultKey(provider.id));
         const previous = selected ? sessions.require(selected, provider.id)
           : options.name ? sessions.named(options.name, provider.id) : undefined;
         const record = previous ?? sessions.put({
@@ -140,45 +144,7 @@ export function registerDeepSeekTools(
     async ({ file_paths, instruction, thinking }, extra) => {
       try {
         if (!provider.analyzeFiles) throw new Error("This provider does not support file analysis");
-        const allowlist = (process.env.WEB_AI_ALLOWED_ROOTS || "")
-          .split(delimiter).map((p) => p.trim()).filter(Boolean);
-        if (!allowlist.length) {
-          throw new Error("Set WEB_AI_ALLOWED_ROOTS to enable local file analysis");
-        }
-        const roots = await Promise.all(allowlist.map((p) => realpath(resolve(p))));
-        const files: FileInput[] = [];
-        let total = 0;
-
-        for (const path of file_paths) {
-          extra.signal.throwIfAborted();
-          if (!isAbsolute(path)) throw new Error("Only absolute file paths are permitted");
-          const actual = await realpath(path);
-          const permitted = roots.some((root) => {
-            const rel = relative(root, actual);
-            return rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel);
-          });
-          if (!permitted) throw new Error("File outside allowed root: " + basename(actual));
-          const handle = await open(actual, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-          try {
-            const fileStat = await handle.stat();
-            if (!fileStat.isFile() || fileStat.size > 10 * 1024 * 1024) {
-              throw new Error("Only ordinary files up to 10 MiB are permitted");
-            }
-            // Bound reads even if the file grows after stat; reject changed size.
-            const buffer = Buffer.alloc(fileStat.size + 1);
-            let length = 0;
-            while (length < buffer.length) {
-              extra.signal.throwIfAborted();
-              const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length);
-              if (!bytesRead) break;
-              length += bytesRead;
-            }
-            if (length > fileStat.size) throw new Error("File grew during read; select a stable file and retry");
-            total += length;
-            if (total > 20 * 1024 * 1024) throw new Error("Total upload exceeds 20 MiB");
-            files.push({ name: basename(actual), buffer: buffer.subarray(0, length) });
-          } finally { await handle.close(); }
-        }
+        const files = await readAllowedFiles(file_paths, extra.signal);
 
         const result = await provider.analyzeFiles(files, instruction, thinking ?? false, extra.signal);
         const record = result.remoteSession ? sessions.put({
@@ -186,7 +152,7 @@ export function registerDeepSeekTools(
         }) : undefined;
         return formatAnswer(result, record?.key, false);
       } catch (error) {
-        return textResult("[deepseek file error] " + redact(error), true);
+        return textResult("[deepseek file error] " + redactFileError(error), true);
       }
     }
   );
@@ -209,7 +175,7 @@ export function registerDeepSeekTools(
         if (session_key && conversation_id && session_key !== conversation_id) throw new Error("Conflicting conversation IDs");
         const key = conversation_id ?? session_key;
         if (!key) throw new Error("Provide conversation_id or session_key");
-        return textResult(sessions.delete(key)
+        return textResult(sessions.delete(key, provider.id)
           ? "Session forgotten locally"
           : "Session not present");
       } catch (error) {
