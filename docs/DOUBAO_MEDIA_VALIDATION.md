@@ -1,0 +1,39 @@
+# 豆包图片与视频生成接入验证
+
+2026-10-19（Asia/Shanghai），用户明确要求在当前豆包 HTTP 适配器中加入图片和视频生成。测试使用本人已登录账号、合成几何体提示词，无人物或私有文件。Cookie、完整请求、响应与生成地址仅保存在 Git 忽略的 `.validation-doubao-media/` 中，目录权限 `0700`，文件 `0600`，未写入 Git。浏览器使用 ego-browser；未使用 Playwright。
+
+## 已观察的协议
+
+| 环节 | 观察与实现 |
+| --- | --- |
+| 图片提交 | 仍为 `POST /chat/completion`；`chat_ability.ability_type=3`，JSON 字符串参数内 `ability_type=1`，模型为 `Seedream 5.0 Flash` |
+| 视频提交 | 同一聊天端点；`ability_type=17`，参数包含 `model=seedance_v2.5`、`ratio`、整数 `duration`、`camera_movement=fixed` |
+| 图片结果 | `2074/creation_block.creations`；`type=1`，`image.status=1` 是观察到的等待状态，`status=2` 含 `image_ori.url` 和尺寸；后续卡片替换旧状态 |
+| 视频结果 | 网页首次要求确认；同会话确认后先返回说明文字，稍后另发助手消息；`type=2`，`video.status=3` 含 `download_url`、字符串宽高及数值时长 |
+| 异步查询 | 网页重载实际调用 `POST /im/chain/single`，命令 `3100`、`pull_singe_chain_uplink_body`、最近 20 条消息；`Content-Type` 必须保留 `encoding=utf-8`，否则返回“不支持编码类型” |
+| 额外 SSE 事件 | 本次响应含 `DOWNLINK_CMD`，`cmd=310` 的 `chunk_update_downlink_body.interrupt_info`；只接受观察到的结构，不静默忽略未知命令 |
+
+图片工具当前仅开放 `auto` 和 `1:1`；视频比例依据网页菜单，时长滑块为 4–30 秒。模型名称与参数是当次网页观察值，不属于公开稳定 API。没有生成聊天签名或设备指纹，没有修改网站额度、验证码或风控规则。
+
+## 产品验收
+
+| 检查 | 实际结果 |
+| --- | --- |
+| 网页图片 | 成功生成浅蓝背景、橙色立方体插画；完整 SSE 由产品解析器离线回放通过 |
+| 网页视频 | 参数确认后生成四秒视频；真实历史响应包含完成卡片 |
+| Inspector | stdio 发现九个工具：原有豆包五个工具、三个生成/查询工具和 `webai_providers` |
+| 真实 MCP 图片 | `doubao_generate_image` 通过 Node HTTP 生成另一张暖灰背景、蓝绿色球体图片，返回实际完成卡片与地址 |
+| 真实 MCP 视频 | `doubao_generate_video` 通过 Node HTTP 提交另一条四秒球体动画请求；该轮没有媒体卡片，明确返回 `no_media_returned` |
+| 真实 MCP 重启查询 | 重启 stdio 进程，`doubao_media_status` 查询同一本地 key，得到该会话的视频完成卡片，实际时长约 4.065 秒 |
+| 结果可访问性 | 不带网页 Cookie 对产品返回的地址发送字节范围 GET，图片 HTTP 206 / `image/png`，视频 HTTP 206 / `video/mp4` |
+| 本地验证 | strict 类型检查、构建、109 项确定性测试、双 Provider HTTP/stdio 冒烟及 41 文件 tarball 隔离安装冒烟通过；测试含生成参数、卡片替换、无媒体回复、URL 边界、会话归属、只读失败不失效、验证码阻断和重启查询 |
+
+生成工具默认创建独立会话，不使用或改变项目默认会话；显式 key/name 可继续已有会话。查询只读取最近 20 条消息，不提交消息，确认更新的助手 lineage 后才原子保存。会话存储不包含提示词、媒体地址、对话正文或凭据。
+
+## 验收边界
+
+- 网站可能要求补充提示或确认参数；返回 `no_media_returned` 只说明没有媒体，不证明任务已经排队。通过 `doubao_chat` 在同会话回答后，再显式查询。工具不会自动确认、重发或轮询。
+- 成功卡片中的 URL 才作为结果返回；未知媒体状态标为 `unavailable`。网页控制额度、计费与输出规格。本次仅验收默认图片模型与四秒视频，其他比例、时长未逐项真实生成。
+- 地址可能过期，当前不自动下载。参考图上传、改图、图生视频、视频延长和自选模型不在本次实现范围。
+- 测试证明当次本人账号的 HTTP 产品链路可用，不保证未来私有接口或风控行为不变。出现验证要求即阻断后续客户端请求，不通过账号轮换、自动解验证码或重复提交继续测试。
+- 本次未发布 npm 版本；v0.1.2 不包含这些豆包能力。

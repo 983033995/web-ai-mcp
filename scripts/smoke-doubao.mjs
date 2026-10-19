@@ -30,6 +30,19 @@ const website = createServer(async (request, response) => {
       response.end(JSON.stringify({ code: 2000, data: { crc32: request.headers["content-crc32"] } })); return;
     }
     assert.equal(request.headers.cookie, "sessionid=fixture; passport_csrf_token=fixture; s_v_web_id=fixture");
+    if (url.pathname === "/im/chain/single") {
+      assert.equal(request.headers["content-type"], "application/json; encoding=utf-8");
+      const body = JSON.parse(raw);
+      const query = body.uplink_body.pull_singe_chain_uplink_body;
+      assert.equal(body.cmd, 3100); assert.equal(query.limit, 20);
+      assert.equal(query.conversation_id, "fixture-video-conv");
+      response.end(JSON.stringify({ status_code: 0, downlink_body: { pull_singe_chain_downlink_body: { messages: [{
+        conversation_id: query.conversation_id, section_id: "fixture-sec", user_type: 2, message_id: "delivered-video",
+        index_in_conv: String(messageIndexes.get(query.conversation_id) + 2), content_block: [{ block_type: 2074, block_id: "video",
+          content: { creation_block: { creations: [{ type: 2, id: "fixture-creation", video: { status: 3,
+            download_url: "https://v11-vdl.doubao.com/fixture.mp4", width: "384", height: "384", duration: 4.065 } }] } } }]
+      }] } } })); return;
+    }
     if (url.pathname === "/alice/resource/prepare_upload") {
       uploadStages.push("prepare"); response.end(JSON.stringify({ code: 0, data: { service_id: "fixture-service",
         upload_auth_token: { access_key: "fixture-access", secret_key: "fixture-secret", session_token: "fixture-token" } } })); return;
@@ -47,8 +60,16 @@ const website = createServer(async (request, response) => {
     requests++;
     const attachment = body.messages[0].content_block.find(block => block.block_type === 10052);
     const fileConversation = Boolean(attachment || body.client_meta.conversation_id === "fixture-file-conv");
-    const conversation = fileConversation ? "fixture-file-conv" : "fixture-conv";
-    if (attachment) {
+    const generation = body.chat_ability;
+    const conversation = generation ? generation.ability_type === 3 ? "fixture-image-conv" : "fixture-video-conv"
+      : fileConversation ? "fixture-file-conv" : "fixture-conv";
+    if (generation) {
+      assert.equal(body.option.need_create_conversation, true);
+      assert.equal(body.option.agent_mode, undefined);
+      const parameters = JSON.parse(generation.ability_param);
+      if (generation.ability_type === 3) assert.equal(parameters.ability_param.model, "Seedream 5.0 Flash");
+      else { assert.equal(generation.ability_type, 17); assert.equal(parameters.model, "seedance_v2.5"); assert.equal(parameters.duration, 4); }
+    } else if (attachment) {
       assert.equal(body.option.need_create_conversation, true);
       assert.equal(attachment.content.attachment_block.attachments[0].file.uri, "fixture-object/fixture.txt");
       assert.deepEqual(uploadStages, ["prepare", "ApplyImageUpload", "upload", "CommitImageUpload"]);
@@ -65,11 +86,13 @@ const website = createServer(async (request, response) => {
     }
     const thinking = body.option.need_deep_think === 3;
     messageIndexes.set(conversation, requests * 2);
-    assert.equal(body.option.model_config.model_item_key, thinking ? "3" : "0");
+    assert.equal(body.option.model_config.model_item_key, generation ? "" : thinking ? "3" : "0");
     response.setHeader("Content-Type", "text/event-stream");
     response.end(frame("SSE_ACK", { ack_client_meta: { conversation_id: conversation, section_id: "fixture-sec" }, query_list: [{ question_id: "fixture-question" }] }) +
       (fileConversation ? frame("DOWNSTREAM_VERBOSE_INFO", { verbose_type: "fixture", verbose_payload: "{}" }) : "") +
       frame("STREAM_MSG_NOTIFY", { message_id: "fixture-answer-" + requests, message_index: requests * 2, content: { content_block: [
+        ...(generation?.ability_type === 3 ? [{ block_type: 2074, block_id: "image", content: { creation_block: { creations: [{ type: 1,
+          id: "fixture-image", image: { status: 2, image_ori: { url: "https://p5-flow-imagex-sign.byteimg.com/fixture.png", width: 2048, height: 2048 } } }] } } }] : []),
         ...(thinking ? [{ block_id: "thinking", block_type: 10040, content: { thinking_block: {} } },
           { block_id: "thought", parent_id: "thinking", block_type: 10000, content: { text_block: { text: "fixture-visible-thought" } } }] : []),
         { block_id: "b1", block_type: 10000, content: { text_block: { text: fileConversation ? "fixture-file-marker 89" : "fixture-answer-text" } } }
@@ -104,12 +127,14 @@ try {
   };
   stage = "stdio initialization";
   await connect();
-  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ["doubao_analyze_files", "doubao_chat", "doubao_reasoner", "doubao_session_close", "doubao_sessions_list", "webai_providers"]);
-  evidence.push("Doubao-only six tools discovered; expert thinking and TXT files advertised");
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ["doubao_analyze_files", "doubao_chat", "doubao_generate_image", "doubao_generate_video", "doubao_media_status", "doubao_reasoner", "doubao_session_close", "doubao_sessions_list", "webai_providers"]);
+  evidence.push("Doubao-only nine tools discovered; expert thinking, TXT and generation advertised");
   const providers = JSON.parse((await call("webai_providers")).text);
   assert.equal(providers.active[0].id, "doubao");
   assert.equal(providers.active[0].capabilities.thinking, true);
   assert.equal(providers.active[0].capabilities.files, true);
+  assert.equal(providers.active[0].capabilities.imageGeneration, true);
+  assert.equal(providers.active[0].capabilities.videoGeneration, true);
   const first = await call("doubao_chat", { message: "first-canary", conversation_name: "fixture", make_default: true });
   assert.equal(first.error, false);
   const key = first.text.match(/session_key: ([a-f0-9-]{36})/)?.[1];
@@ -141,13 +166,24 @@ try {
   const fileFollowup = await call("doubao_chat", { message: "file followup", session_key: fileKey });
   assert.equal(fileFollowup.error, false); assert.ok(fileFollowup.text.includes(fileKey));
   evidence.push("bounded TXT upload, commit, file answer and restart follow-up");
+  const image = await call("doubao_generate_image", { prompt: "synthetic image fixture" });
+  assert.equal(image.error, false); assert.ok(image.text.includes('"media_status": "completed"'));
+  assert.ok(image.text.includes("https://p5-flow-imagex-sign.byteimg.com/fixture.png"));
+  const video = await call("doubao_generate_video", { prompt: "synthetic video fixture", duration_seconds: 4 });
+  assert.equal(video.error, false); assert.ok(video.text.includes("no_media_returned"));
+  const videoKey = video.text.match(/session_key: ([a-f0-9-]{36})/)?.[1]; assert.ok(videoKey);
+  await client.close(); await transport.close(); await connect();
+  const media = await call("doubao_media_status", { session_key: videoKey });
+  assert.equal(media.error, false); assert.ok(media.text.includes("https://v11-vdl.doubao.com/fixture.mp4"));
+  evidence.push("image creation URL, video acknowledgement and read-only result lookup after process restart");
   const disk = await readFile(env.WEB_AI_SESSION_STORE_PATH, "utf8");
   assert.ok(!disk.includes("first-canary") && !disk.includes("second-canary") && !disk.includes("sessionid=fixture"));
+  assert.ok(!disk.includes("synthetic image fixture") && !disk.includes("fixture.mp4"));
   evidence.push("disk excludes cookies and messages");
   assert.equal((await call("doubao_chat", { message: "unknown", session_key: "00000000-0000-4000-8000-000000000000" })).error, true);
   assert.equal((await call("doubao_session_close", { session_key: key })).error, false);
   assert.equal((await call("doubao_chat", { message: "closed", session_key: key })).error, true);
-  assert.equal(requests, 5);
+  assert.equal(requests, 7);
   evidence.push("unknown and closed keys fail without upstream writes");
   console.log(JSON.stringify({ mode: "Doubao local HTTP fixture; not live website", passed: evidence }, null, 2));
 } catch {

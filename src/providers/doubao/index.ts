@@ -1,11 +1,12 @@
-import type { ChatRequest, FileInput, ProviderResult, RemoteSession, WebAIProvider } from "../../core/provider.js";
+import type { ChatRequest, FileInput, MediaGenerationRequest, ProviderResult, RemoteSession, WebAIProvider } from "../../core/provider.js";
 import { DoubaoWebClient } from "./web-client.js";
 import type { DoubaoWebReply } from "./sse.js";
 
 export class DoubaoWebProvider implements WebAIProvider {
   readonly id = "doubao";
   readonly displayName = "Doubao Web (experimental HTTP)";
-  readonly capabilities = { chat: true, thinking: true, files: true, webSearch: false, sessionResume: true } as const;
+  readonly capabilities = { chat: true, thinking: true, files: true, webSearch: false, sessionResume: true,
+    imageGeneration: true, videoGeneration: true } as const;
 
   constructor(cookie: string, private readonly client = new DoubaoWebClient(cookie)) {}
 
@@ -20,12 +21,21 @@ export class DoubaoWebProvider implements WebAIProvider {
     return this.result(await this.client.analyzeFiles(files, instruction, thinking, signal));
   }
 
+  async generateMedia(request: MediaGenerationRequest, previous?: RemoteSession): Promise<ProviderResult> {
+    return this.result(await this.client.generateMedia(request, previous));
+  }
+
+  async getMedia(previous: RemoteSession, signal?: AbortSignal): Promise<ProviderResult> {
+    return this.client.getMedia(previous, signal);
+  }
+
   private result(reply: DoubaoWebReply): ProviderResult {
     const resumable = Boolean(reply.conversationId && reply.sectionId && reply.messageId && reply.localConversationId &&
       Number.isSafeInteger(reply.messageIndex) && Number(reply.messageIndex) >= 0);
     return {
       content: reply.content,
       reasoning: reply.reasoning,
+      ...(reply.media ? { media: reply.media } : {}),
       remoteSession: resumable ? {
         conversationId: reply.conversationId, sectionId: reply.sectionId, lastMessageId: reply.messageId,
         lastMessageIndex: reply.messageIndex, localConversationId: reply.localConversationId

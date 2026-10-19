@@ -33,7 +33,7 @@
 | 文件分析 | 已实现，仅允许上传显式授权目录内的文件 |
 | 会话管理 | 已实现，列出或关闭本地会话映射 |
 | 网站搜索 | 未启用，`search_enabled` 固定为 `false` |
-| Doubao（当前源码） | 实验性 HTTP 快速/专家聊天、可见思考、TXT 文件分析及同会话续聊；存在网站风控与私有接口变化风险 |
+| Doubao（当前源码） | 实验性 HTTP 快速/专家聊天、可见思考、TXT 文件分析、图片/视频生成及同会话续聊；存在网站风控与私有接口变化风险 |
 | 其他网站 | 未实现，不可调用 |
 | HTTP / 远程多用户 MCP | 未实现，仅支持本地 stdio |
 
@@ -299,6 +299,22 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 ```
 
 同样替换为实际 ID。关闭只删除本地映射；若它是项目默认，会一并清除默认绑定。网站历史仍保留，需要在网站自行管理。
+
+### 豆包图片与视频生成（仅当前源码）
+
+npm v0.1.2 尚不包含这些豆包工具。使用构建后的源码入口，并从本人同一次网页请求配置 `DOUBAO_COOKIE`、`DOUBAO_CHAT_URL` 和 `DOUBAO_USER_AGENT`，详见[豆包配置](src/providers/doubao/README.md)。建议设置 `DOUBAO_TIMEOUT=120000`，客户端工具超时大于此值。
+
+| 工具 | 参数与行为 |
+| --- | --- |
+| `doubao_generate_image` | `prompt` 必填；Seedream 5.0 Flash；`ratio` 可选 `auto` 或 `1:1` |
+| `doubao_generate_video` | `prompt` 必填；Seedance 2.5；`duration_seconds` 为 4–30 的整数，默认 4；`ratio` 可选 `auto`、`1:1`、`3:4`、`4:3`、`9:16`、`16:9`、`21:9` |
+| `doubao_media_status` | `session_key` 必填；只读查询该会话最近 20 条消息中的图片/视频结果，不提交生成任务 |
+
+两个生成工具默认建立独立会话，不复用项目默认会话；可用 `conversation_name` 创建/继续命名会话，或传 `session_key` 继续已有会话。返回的 `media` 包含媒体类型、状态及成功结果的地址和尺寸，视频还可包含实际时长。地址可能过期，不会自动下载文件。实际模型、额度和输出规格仍由网站决定；生成可能消耗本人账号额度。
+
+视频可能先请求确认参数。此时 `media_status=no_media_returned` 表示**尚未返回媒体**，不证明任务已受理。阅读网站回复后，通过 `doubao_chat` 携带同一 `session_key` 回答；异步结果通过 `doubao_media_status` 获取，支持 MCP 重启后查询。系统不会把文字承诺当成生成成功，不会自动确认、重发或轮询。图片参考输入、改图、图生视频及模型选择尚未开放。
+
+2026-10-19 已验证真实 MCP 图片生成、4 秒视频请求及重启后只读结果查询；网站验收范围见[生成验证记录](docs/DOUBAO_MEDIA_VALIDATION.md)。
 
 ## 环境变量
 

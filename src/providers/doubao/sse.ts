@@ -1,4 +1,6 @@
 import { DoubaoWebError, businessError } from "./errors.js";
+import type { GeneratedMedia } from "../../core/provider.js";
+import { creationMedia } from "./media.js";
 
 export interface DoubaoWebReply {
   content: string;
@@ -8,6 +10,7 @@ export interface DoubaoWebReply {
   messageId?: string;
   messageIndex?: number;
   localConversationId?: string;
+  media?: GeneratedMedia[];
 }
 
 type JsonObject = Record<string, any>;
@@ -22,6 +25,7 @@ export async function parseSSE(body: ReadableStream<Uint8Array>, signal: AbortSi
   const reader = body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const blocks = new Map<string, { type: number; text: string; parent?: string; container: boolean }>();
+  const mediaBlocks = new Map<string, GeneratedMedia[]>();
   let pending = "";
   let finished = false;
   let accepted = false;
@@ -53,8 +57,20 @@ export async function parseSSE(body: ReadableStream<Uint8Array>, signal: AbortSi
     if (!Array.isArray(value)) throw malformed();
     for (const block of value) {
       if (!object(block) || !Number.isInteger(block.block_type)) throw malformed();
+      if (block.block_type === 2074) {
+        const key = id(block.block_id);
+        if (blocks.has(key)) throw malformed();
+        if (operation === "remove") {
+          if (!mediaBlocks.delete(key)) throw malformed();
+        } else {
+          if (!object(block.content)) throw malformed();
+          mediaBlocks.set(key, creationMedia(block.content.creation_block));
+        }
+        continue;
+      }
       if (![10000, 10040, 10101].includes(block.block_type)) continue;
       const key = id(block.block_id);
+      if (mediaBlocks.has(key)) throw malformed();
       const previous = blocks.get(key);
       if (previous && previous.type !== block.block_type) throw malformed();
       if (operation === "remove") {
@@ -91,6 +107,12 @@ export async function parseSSE(body: ReadableStream<Uint8Array>, signal: AbortSi
       throw new DoubaoWebError("stream_error", "Doubao Web reported a stream error; upstream details suppressed", true);
     }
     if (kind === "SSE_HEARTBEAT") return;
+    if (kind === "DOWNLINK_CMD") {
+      const info = json.downlink_body?.chunk_update_downlink_body?.interrupt_info;
+      if (json.cmd !== 310 || !object(info) || typeof info.no_interrupt !== "boolean" ||
+          !["string", "number"].includes(typeof info.chat_id)) throw malformed();
+      return;
+    }
     if (kind === "DOWNSTREAM_VERBOSE_INFO") {
       if (typeof json.verbose_type !== "string" || typeof json.verbose_payload !== "string") throw malformed();
       return;
@@ -204,8 +226,10 @@ export async function parseSSE(body: ReadableStream<Uint8Array>, signal: AbortSi
       if (thinking) reasoning += block.text;
       else if (block.type === 10000) content += block.text;
     }
-    if (!finished || !content) throw malformed();
-    return { content, reasoning: reasoning || undefined, conversationId, sectionId, messageId, messageIndex };
+    const media = [...mediaBlocks.values()].flat();
+    if (!finished || (!content && !media.length)) throw malformed();
+    return { content, reasoning: reasoning || undefined, conversationId, sectionId, messageId, messageIndex,
+      ...(media.length ? { media } : {}) };
   } catch (error) {
     if (error instanceof DoubaoWebError || signal.aborted) throw error;
     throw malformed();
