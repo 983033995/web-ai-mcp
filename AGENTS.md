@@ -26,6 +26,7 @@ Build a safe, maintainable MCP server exposing **your own web AI conversations**
 4. Verify MCP Inspector tool discovery, then conduct authorized opt-in website smoke tests.
 5. Doubao chat, expert thinking and TXT files were explicitly requested on 2026-10-14. Do not add other providers or remote MCP HTTP transport without subsequent requirements.
 6. Doubao text-to-image and text-to-video were explicitly requested on 2026-10-19. Treat website clarification, acknowledgement and completed media as different outcomes; asynchronous result queries must not submit generation.
+7. Long-chat/background jobs were requested on 2026-10-19 after Qoder's 60-second control timeout. Preserve pending/uncertain protection; job status never submits writes. Job IDs are not session keys, process restart never silently replays work, and progress notifications do not guarantee client timeout extension.
 
 ## GitHub maintenance
 - Use a task branch and a pull request; do not push ordinary changes directly to protected main. Codex branch names use codex/.

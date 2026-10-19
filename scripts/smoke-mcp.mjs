@@ -22,7 +22,7 @@ let client;
 let transport;
 const evidence = [];
 const expectedTools = ["deepseek_chat", "deepseek_reasoner", "deepseek_analyze_files",
-  "deepseek_sessions_list", "deepseek_session_close", "webai_providers"].sort();
+  "deepseek_sessions_list", "deepseek_session_close", "webai_providers", "webai_usage", "webai_job_status", "webai_job_cancel"].sort();
 
 function localWebsite() {
   let nextId = 0;
@@ -131,7 +131,7 @@ try {
   };
   stage = "tools/list";
   assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name).sort(), expectedTools);
-  evidence.push("six MCP tools discovered");
+  evidence.push("nine MCP tools discovered, including usage and background job controls");
   const providers = JSON.parse(await successful("webai_providers"));
   assert.deepEqual(providers.active.map((provider) => provider.id), ["deepseek"]);
   assert.equal(providers.active[0].capabilities.webSearch, false);

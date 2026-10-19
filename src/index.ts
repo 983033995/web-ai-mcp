@@ -10,6 +10,9 @@ import { loadPowWasm } from "./providers/deepseek/wasm.js";
 import { registerProviders } from "./providers/index.js";
 import { registerDeepSeekTools } from "./tools/deepseek.js";
 import { registerDoubaoTools } from "./tools/doubao.js";
+import { JobManager } from "./core/jobs.js";
+import { registerCommonTools } from "./tools/common.js";
+import { USAGE } from "./tools/guidance.js";
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: {
@@ -38,17 +41,19 @@ async function main(): Promise<void> {
     resolve(process.env.WEB_AI_SESSION_STORE_PATH || resolve(projectRoot, ".web-ai-mcp/sessions.json"))
   );
 
-  const server = new McpServer({ name: "web-ai-mcp", version });
+  const server = new McpServer({ name: "web-ai-mcp", version }, { instructions: USAGE });
+  const jobs = new JobManager();
+  registerCommonTools(server, jobs);
   if (registry.has("deepseek")) {
-    registerDeepSeekTools(server, registry.get("deepseek"), sessions);
+    registerDeepSeekTools(server, registry.get("deepseek"), sessions, jobs);
   }
   if (registry.has("doubao")) {
-    registerDoubaoTools(server, registry.get("doubao"), sessions);
+    registerDoubaoTools(server, registry.get("doubao"), sessions, jobs);
   }
 
   server.tool(
     "webai_providers",
-    "List active and planned Web AI provider slots; planned providers are not callable.",
+    "List active Web AI providers. Read webai_usage before first website call. Long reasoning: background=true with UUID request_id, then poll webai_job_status; never resubmit after timeout.",
     {},
     async () => ({
       content: [{

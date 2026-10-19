@@ -5,6 +5,8 @@ import { readAllowedFiles } from "../core/files.js";
 import { basename } from "node:path";
 import { ProviderError } from "../core/provider.js";
 import type { SessionStore } from "../core/session-store.js";
+import type { JobManager } from "../core/jobs.js";
+import { CHAT_DESCRIPTION, chatFields, dispatchChat, failureDetails } from "./guidance.js";
 
 const textResult = (text: string, error = false) => ({
   content: [{ type: "text" as const, text }],
@@ -33,7 +35,7 @@ function formatAnswer(result: ProviderResult, key?: string, showReasoning = fals
 }
 
 export function registerDeepSeekTools(
-  server: McpServer, provider: WebAIProvider, sessions: SessionStore
+  server: McpServer, provider: WebAIProvider, sessions: SessionStore, jobs?: JobManager
 ): void {
   const sendChat = async (
     message: string,
@@ -76,61 +78,31 @@ export function registerDeepSeekTools(
         }
       });
     } catch (error) {
-      return textResult("[deepseek error] " + redact(error), true);
+      return textResult("[deepseek error] " + redact(error) + "\n" + failureDetails(error), true);
     }
   };
 
   server.tool(
     "deepseek_chat",
-    "Chat through DeepSeek WEBSITE. Resume persisted conversation_id/session_key or conversation_name. make_default binds subsequent calls in this project.",
+    "Chat through DeepSeek WEBSITE. make_default binds successful project conversations." + CHAT_DESCRIPTION,
     {
-      message: z.string().min(1),
-      session_key: z.string().uuid().optional(),
-      conversation_id: z.string().uuid().optional(),
-      conversation_name: z.string().trim().min(1).max(80).optional(),
-      make_default: z.boolean().optional(),
-      system_prompt: z.string().optional(),
+      ...chatFields,
       thinking: z.boolean().optional(),
-      show_reasoning: z.boolean().optional(),
     },
-    async ({ message, session_key, conversation_id, conversation_name, make_default, system_prompt, thinking, show_reasoning }, extra) => sendChat(
-      message, {
-        key: session_key,
-        conversationId: conversation_id,
-        name: conversation_name,
-        makeDefault: make_default,
-        systemPrompt: system_prompt,
-        thinking: thinking ?? false,
-        showReasoning: show_reasoning ?? false,
-        signal: extra.signal
-      }
-    )
+    async (args, extra) => dispatchChat(args, extra, jobs, "deepseek_chat", signal => sendChat(args.message, {
+      key: args.session_key, conversationId: args.conversation_id, name: args.conversation_name, makeDefault: args.make_default,
+      systemPrompt: args.system_prompt, thinking: args.thinking ?? false, showReasoning: args.show_reasoning ?? false, signal
+    }))
   );
 
   server.tool(
     "deepseek_reasoner",
-    "DeepSeek Web thinking; resume the same persisted conversation_id/session_key or conversation_name. Supports project default conversation.",
-    {
-      message: z.string().min(1),
-      session_key: z.string().uuid().optional(),
-      conversation_id: z.string().uuid().optional(),
-      conversation_name: z.string().trim().min(1).max(80).optional(),
-      make_default: z.boolean().optional(),
-      system_prompt: z.string().optional(),
-      show_reasoning: z.boolean().optional(),
-    },
-    async ({ message, session_key, conversation_id, conversation_name, make_default, system_prompt, show_reasoning }, extra) => sendChat(
-      message, {
-        key: session_key,
-        conversationId: conversation_id,
-        name: conversation_name,
-        makeDefault: make_default,
-        systemPrompt: system_prompt,
-        thinking: true,
-        showReasoning: show_reasoning ?? false,
-        signal: extra.signal
-      }
-    )
+    "DeepSeek Web thinking. Prefer background=true for long reasoning." + CHAT_DESCRIPTION,
+    { ...chatFields },
+    async (args, extra) => dispatchChat(args, extra, jobs, "deepseek_reasoner", signal => sendChat(args.message, {
+      key: args.session_key, conversationId: args.conversation_id, name: args.conversation_name, makeDefault: args.make_default,
+      systemPrompt: args.system_prompt, thinking: true, showReasoning: args.show_reasoning ?? false, signal
+    }))
   );
 
   server.tool(

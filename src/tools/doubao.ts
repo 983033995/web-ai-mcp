@@ -4,6 +4,8 @@ import type { FileInput, MediaGenerationRequest, ProviderResult, WebAIProvider }
 import { readAllowedFiles } from "../core/files.js";
 import { ProviderError } from "../core/provider.js";
 import type { SessionStore } from "../core/session-store.js";
+import type { JobManager } from "../core/jobs.js";
+import { CHAT_DESCRIPTION, chatFields, dispatchChat, failureDetails } from "./guidance.js";
 import { DOUBAO_IMAGE_MODELS, DOUBAO_VIDEO_MODELS, DOUBAO_IMAGE_RATIOS, DOUBAO_VIDEO_RATIOS, DOUBAO_IMAGE_STYLES } from "../providers/doubao/media.js";
 
 const textResult = (text: string, error = false) => ({
@@ -94,7 +96,8 @@ function expertMode(mode?: "quick" | "expert", thinking?: boolean): boolean {
 export function registerDoubaoTools(
   server: McpServer,
   provider: WebAIProvider,
-  sessions: SessionStore
+  sessions: SessionStore,
+  jobs?: JobManager
 ): void {
   const sendChat = async (
     message: string,
@@ -161,28 +164,26 @@ export function registerDoubaoTools(
         }
       });
     } catch (error) {
-      return textResult("[doubao error] " + redact(error), true);
+      return textResult("[doubao error] " + redact(error) + "\n" + failureDetails(error), true);
     }
   };
 
   server.registerTool(
     "doubao_chat",
     {
-      description: "Chat through Doubao WEBSITE. Select persisted conversation_id/session_key or conversation_name. make_default binds subsequent calls in this project.",
+      description: "Chat through Doubao WEBSITE. mode/thinking apply to this message, not global settings." + CHAT_DESCRIPTION,
       inputSchema: z.object({
-        message: z.string().min(1),
-        session_key: z.string().uuid().optional(),
-        conversation_id: z.string().uuid().optional(),
-        conversation_name: z.string().trim().min(1).max(80).optional(),
-        make_default: z.boolean().optional(),
-        system_prompt: z.string().optional(),
+        ...chatFields,
         mode: z.enum(["quick", "expert"]).optional(),
         thinking: z.boolean().optional(),
         show_reasoning: z.boolean().optional(),
       }).strict(),
     },
     async (
-      {
+      args,
+      extra
+    ) => {
+      const {
         message,
         session_key,
         conversation_id,
@@ -192,30 +193,28 @@ export function registerDoubaoTools(
         mode,
         thinking,
         show_reasoning,
-      },
-      extra
-    ) => {
-      try { return await sendChat(message, {
+      } = args;
+      try {
+        const selectedThinking = expertMode(mode, thinking);
+        return await dispatchChat(args, extra, jobs, "doubao_chat", signal => sendChat(message, {
         key: session_key,
         conversationId: conversation_id,
         name: conversation_name,
         makeDefault: make_default,
         systemPrompt: system_prompt,
-        thinking: expertMode(mode, thinking),
+        thinking: selectedThinking,
         showReasoning: show_reasoning ?? false,
-        signal: extra.signal,
-      }); } catch (error) { return textResult("[doubao error] " + redact(error), true); }
+        signal,
+      })); } catch (error) { return textResult("[doubao error] " + redact(error) + "\n" + failureDetails(error), true); }
     }
   );
 
   server.registerTool("doubao_reasoner", {
-    description: "Doubao Web expert mode with visible thinking. Resume the same local conversation by key or name.",
-    inputSchema: z.object({ message: z.string().min(1), session_key: z.string().uuid().optional(), conversation_id: z.string().uuid().optional(),
-      conversation_name: z.string().trim().min(1).max(80).optional(), make_default: z.boolean().optional(),
-      system_prompt: z.string().optional(), show_reasoning: z.boolean().optional() }).strict(),
-  }, async ({ message, session_key, conversation_id, conversation_name, make_default, system_prompt, show_reasoning }, extra) =>
-    sendChat(message, { key: session_key, conversationId: conversation_id, name: conversation_name, makeDefault: make_default,
-      systemPrompt: system_prompt, thinking: true, showReasoning: show_reasoning ?? false, signal: extra.signal }));
+    description: "Doubao Web expert mode. Prefer background=true for long reasoning. Stop if website reports quota exhaustion." + CHAT_DESCRIPTION,
+    inputSchema: z.object({ ...chatFields }).strict(),
+  }, async (args, extra) => dispatchChat(args, extra, jobs, "doubao_reasoner", signal =>
+    sendChat(args.message, { key: args.session_key, conversationId: args.conversation_id, name: args.conversation_name, makeDefault: args.make_default,
+      systemPrompt: args.system_prompt, thinking: true, showReasoning: args.show_reasoning ?? false, signal })));
 
   server.registerTool("doubao_analyze_files", {
     description: "Create a Doubao file-analysis conversation by uploading selected TXT files. Requires WEB_AI_ALLOWED_ROOTS; resume later with the returned key.",

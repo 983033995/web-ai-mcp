@@ -1,6 +1,6 @@
 {
   "name": "web-ai-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Own-account DeepSeek Web MCP with experimental Doubao HTTP transport",
   "license": "MIT",
@@ -23,6 +23,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "smoke:local": "node scripts/smoke-mcp.mjs && node scripts/smoke-doubao.mjs",
+    "smoke:long-task": "node scripts/smoke-long-task.mjs",
     "smoke:doubao:live": "tsx scripts/probe-doubao.ts --live",
     "smoke:live": "node scripts/smoke-mcp.mjs --live",
     "smoke:package": "node scripts/smoke-package.mjs",

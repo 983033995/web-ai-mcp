@@ -140,8 +140,8 @@ try {
   };
   stage = "stdio initialization";
   await connect();
-  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ["doubao_analyze_files", "doubao_chat", "doubao_generate_image", "doubao_generate_video", "doubao_media_status", "doubao_reasoner", "doubao_session_close", "doubao_sessions_list", "webai_providers"]);
-  evidence.push("Doubao-only nine tools discovered; expert thinking, TXT and generation advertised");
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ["doubao_analyze_files", "doubao_chat", "doubao_generate_image", "doubao_generate_video", "doubao_media_status", "doubao_reasoner", "doubao_session_close", "doubao_sessions_list", "webai_job_cancel", "webai_job_status", "webai_providers", "webai_usage"]);
+  evidence.push("Doubao-only twelve tools discovered, including usage and background job controls");
   const providers = JSON.parse((await call("webai_providers")).text);
   assert.equal(providers.active[0].id, "doubao");
   assert.equal(providers.active[0].capabilities.thinking, true);

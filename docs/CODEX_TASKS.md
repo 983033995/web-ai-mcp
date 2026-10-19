@@ -44,4 +44,7 @@
 - [x] Add observed image ratios and 32 styles plus allowed local PNG/JPEG/WebP reference uploads; verify actual MCP reference generation at 3:4 and default Fast video (requested 2026-10-19)
 
 ## Codex kickoff prompt
+- [x] Add startup usage instructions, explicit parameter/recovery guidance and bounded background chat jobs with idempotent submission, read-only status and cancellation (requested 2026-10-19 after a real Qoder session failure audit)
+- [x] Verify local HTTP/stdio delayed 65-second completion with 3-second client calls, one website write and active session state; no live account requests replayed
+
 Read AGENTS.md, README.md, docs/ARCHITECTURE.md, docs/PRD.md, and docs/CODEX_TASKS.md. This is an own-account stdio Web AI MCP, not CLIProxyAPI. DeepSeek is released; Doubao source integration was explicitly requested and remains experimental. Respect credential confidentiality, WEB_AI_ALLOWED_ROOTS and live-validation limits. Do not invent capabilities or bypass access controls.
