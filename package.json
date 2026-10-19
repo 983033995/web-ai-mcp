@@ -1,6 +1,6 @@
 {
   "name": "web-ai-mcp",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "Own-account DeepSeek Web MCP with experimental Doubao HTTP transport",
   "license": "MIT",

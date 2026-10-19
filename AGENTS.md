@@ -1,7 +1,7 @@
 # Codex engineering rules — Web AI MCP
 
 ## Mission
-Build a safe, maintainable MCP server exposing **your own web AI conversations**. The released v0.1.2 supports DeepSeek Web; current source additionally implements the explicitly requested experimental Doubao HTTP provider. Do **not** implement CLIProxyAPI, OpenAI proxy endpoints, or official DeepSeek API access.
+Build a safe, maintainable MCP server exposing **your own web AI conversations**. v0.2.0 includes DeepSeek Web and the explicitly requested experimental Doubao HTTP provider; earlier npm v0.1.2 supports DeepSeek only. Do **not** implement CLIProxyAPI, OpenAI proxy endpoints, or official DeepSeek API access.
 
 ## Coding principles
 - Keep changes minimal and incremental; validate each vertical slice before expanding.
