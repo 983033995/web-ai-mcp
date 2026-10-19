@@ -4,11 +4,11 @@
 
 ![Web AI MCP 架构：本机编程助手通过 stdio 调用 MCP 服务，再连接本人 DeepSeek 网页账号；会话关联保存在本地，消息和授权文件发送到网站。](docs/images/overview.png)
 
-通过 MCP，让本机 AI 编程助手调用**你自己的 DeepSeek 网页账号**，进行聊天、深度思考、文件分析和多轮讨论。
+通过 MCP，让本机 AI 编程助手调用**你自己的 DeepSeek、豆包网页账号**，进行聊天、深度思考、文件分析和多轮讨论；豆包另支持图片、视频生成。
 
-适用于咨询代码、比较方案、持续讨论项目的场景。当前提供本地 **stdio MCP server**。发行版本 v0.1.2 仅实现 DeepSeek Web；当前源码另含实验性 Doubao 纯 HTTP 适配器，已验证本人账号的 Node HTTP 完整回复与同会话续聊，曾遇到暂时人机验证要求，不代表已发行或稳定支持。调查与验证边界见[风控记录](docs/DOUBAO_RISK_INVESTIGATION.md)。
+适用于咨询代码、比较方案、持续讨论项目和生成图片/视频的场景。程序通过 npm/npx 安装，作为本机 **stdio MCP server** 运行。v0.2.0 加入实验性豆包网页版接入；v0.1.2 及更早版本只支持 DeepSeek。豆包已完成本人账号的代表性实测，仍受网站风控、额度和私有接口变化影响。验证边界见[风控记录](docs/DOUBAO_RISK_INVESTIGATION.md)和[生成验证](docs/DOUBAO_MEDIA_VALIDATION.md)。
 
-> **状态：npm 已发行，当前发行版本 v0.1.2。** 项目自身代码采用 MIT，支持 npm/npx 安装与 GitHub Release 自动发布（OIDC，无长期 npm token）。首次版本 v0.1.1 已完成 registry 发布；v0.1.2 更新发行说明。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
+> **本文对应 v0.2.0，npm 实际可用版本以 registry 为准。** 项目自身代码采用 MIT，通过 GitHub Release / Actions 验证并发布（OIDC，无长期 npm token）。npm 地址用于安装程序，不是远程 MCP 服务地址；使用者无需部署服务器。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。DeepSeek 所需上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
 
 ## 目录
 
@@ -33,7 +33,7 @@
 | 文件分析 | 已实现，仅允许上传显式授权目录内的文件 |
 | 会话管理 | 已实现，列出或关闭本地会话映射 |
 | 网站搜索 | 未启用，`search_enabled` 固定为 `false` |
-| Doubao（当前源码） | 实验性 HTTP 快速/专家聊天、可见思考、TXT 文件分析及同会话续聊；存在网站风控与私有接口变化风险 |
+| 豆包（v0.2.0 起） | 实验性快速/专家聊天、可见思考、TXT 分析、可选模型/参数的图片与视频生成、参考图及同会话续聊 |
 | 其他网站 | 未实现，不可调用 |
 | HTTP / 远程多用户 MCP | 未实现，仅支持本地 stdio |
 
@@ -50,7 +50,7 @@
 先准备一次 PoW WASM（不需要网站 token）：
 
 ```bash
-npx -y web-ai-mcp@0.1.2 --setup
+npx -y web-ai-mcp@0.2.0 --setup
 ```
 
 首次启动也会自动准备；显式执行 `--setup` 可避免客户端下载时间叠加 MCP 启动超时。WASM 从固定上游提交下载到本机缓存并校验 SHA-256，不写入 npm 安装目录，也不随包分发。后续版本更新请明确修改配置中的版本号。
@@ -75,7 +75,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
     "web-ai-mcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "web-ai-mcp@0.1.2"],
+      "args": ["-y", "web-ai-mcp@0.2.0"],
       "env": {
         "DEEPSEEK_USER_TOKEN": "YOUR_OWN_DEEPSEEK_WEB_TOKEN"
       }
@@ -88,11 +88,11 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
 
 | 配置位置 | 填什么 | 例子 |
 | --- | --- | --- |
-| `command` / `args` | 启动服务的命令、包名和 CLI 选项 | `npx`、`-y`、`web-ai-mcp@0.1.2` |
+| `command` / `args` | 启动服务的命令、包名和 CLI 选项 | `npx`、`-y`、`web-ai-mcp@0.2.0` |
 | `env` | 服务启动时的配置，值都用字符串 | `DEEPSEEK_USER_TOKEN`、`WEB_AI_PROJECT_ROOT` |
 | 每次工具调用的 JSON | 本轮问题、会话选择或文件列表 | `message`、`conversation_name`、`file_paths` |
 
-不要把 token、上传目录等自定义键直接放在 `web-ai-mcp` 顶层，也不用把 token 放到 `args` 中。`env` 由客户端传给服务，当前 v0.1.2 已支持，无需升级。
+不要把 token、上传目录等自定义键直接放在 `web-ai-mcp` 顶层，也不用把 token 放到 `args` 中。`env` 由客户端传给服务；豆包配置和获取步骤见[豆包接入](#豆包接入配置参数与获取方式)。
 
 真实 token 只能保存在本机私有配置中，不要提交含 token 的 `.mcp.json` 或 `.codex/config.toml`。要共享项目配置时，使用下文的环境变量转发或可选 `.env` 方式。
 
@@ -102,7 +102,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
 
 > 调用 `webai_providers` 查看可用服务，再调用 `deepseek_chat`，询问“请用一句话介绍你能帮我做什么”。
 
-发现六个工具说明本地连接成功；收到聊天答案才说明当前账号的网站请求成功。
+仅配置 DeepSeek 时应发现 6 个工具，仅豆包为 9 个，两者同时配置为 14 个。工具发现说明本地连接成功；收到实际答案才说明当前账号的网站请求成功。
 
 ## 接入 MCP 客户端
 
@@ -118,7 +118,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
     "web-ai-mcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "web-ai-mcp@0.1.2"],
+      "args": ["-y", "web-ai-mcp@0.2.0"],
       "env": {
         "DEEPSEEK_USER_TOKEN": "YOUR_OWN_DEEPSEEK_WEB_TOKEN",
         "WEB_AI_PROJECT_ROOT": "/absolute/path/to/your-project",
@@ -152,7 +152,7 @@ Claude Code 的项目级文件是 `.mcp.json`；含真实 token 的配置不要�
 ```toml
 [mcp_servers.web-ai-mcp]
 command = "npx"
-args = ["-y", "web-ai-mcp@0.1.2"]
+args = ["-y", "web-ai-mcp@0.2.0"]
 startup_timeout_sec = 60
 tool_timeout_sec = 180
 
@@ -182,7 +182,7 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 ```json
 {
   "args": [
-    "-y", "web-ai-mcp@0.1.2",
+    "-y", "web-ai-mcp@0.2.0",
     "--env-file", "/absolute/path/to/web-ai.env"
   ]
 }
@@ -300,11 +300,55 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 
 同样替换为实际 ID。关闭只删除本地映射；若它是项目默认，会一并清除默认绑定。网站历史仍保留，需要在网站自行管理。
 
+### 豆包图片与视频生成
+
+使用 `web-ai-mcp@0.2.0`，并从本人同一次网页请求配置 `DOUBAO_COOKIE`、`DOUBAO_CHAT_URL` 和 `DOUBAO_USER_AGENT`，获取方法见[豆包接入](#豆包接入配置参数与获取方式)。建议设置 `DOUBAO_TIMEOUT=120000`，客户端工具超时大于此值。v0.1.2 不包含这些能力。
+
+| 工具 | 参数与行为 |
+| --- | --- |
+| `doubao_generate_image` | `prompt` 必填；`model` 默认 `Seedream 5.0 Flash`；支持 `ratio`、`style`、`reference_image_paths` |
+| `doubao_generate_video` | `prompt` 必填；`model` 默认 `Seedance 2.0 Fast`；`duration_seconds` 默认 4；`ratio` 可选 `auto`、`1:1`、`3:4`、`4:3`、`9:16`、`16:9`、`21:9` |
+| `doubao_media_status` | `session_key` 必填；只读查询该会话最近 20 条消息中的图片/视频结果，不提交生成任务 |
+
+`model` 使用以下名称，每次调用都可选择；省略时使用默认模型，不继承网站偏好或上一次调用的模型。
+
+| 类型 | 可选模型 | 视频时长 |
+| --- | --- | --- |
+| 图片 | `Seedream 5.0 Flash`（默认）、`Seedream 5.0 Pro`、`Seedream 4.5`、`Seedream 4.0` | — |
+| 视频 | `Seedance 2.0 Fast`（默认）、`Seedance 2.0`、`Seedance 2.0 Mini` | 4–15 秒整数 |
+| 视频 | `Seedance 2.5` | 4–30 秒整数 |
+
+例如调用 `doubao_generate_video`，参数为 `{"prompt":"一个红色球体缓慢升起，固定镜头","model":"Seedance 2.0 Fast","duration_seconds":4}`。使用同一 `session_key` 再次生成时可以换用另一模型。未知模型、跨类型模型及不兼容的时长会报错，不会自动换模型；账号能否使用对应模型及其消耗由网站决定。
+
+图片 `ratio` 可选 `auto`（默认）、`1:1`、`2:3`、`3:2`、`3:4`、`4:3`、`9:16`、`16:9`。`style` 可选水彩画、油画、动漫、3D渲染等网页列出的 32 种风格；完整可选值由工具参数 schema 提供，省略表示不指定风格。
+
+`reference_image_paths` 接受 1–5 个本地 PNG、JPEG 或 WebP 的绝对路径，必须位于 `WEB_AI_ALLOWED_ROOTS` 内；每张不超过 10 MiB、合计不超过 20 MiB。参考图实际上传到本人豆包账号，按图片授权、CRC 和提交确认后引用；不接受任意远程地址或符号链接逃逸路径。例如调用 `doubao_generate_image`：
+
+```json
+{
+  "prompt": "保留参考图主体，生成浅黄色背景的水彩插画",
+  "model": "Seedream 4.0",
+  "ratio": "3:4",
+  "style": "水彩画",
+  "reference_image_paths": ["/absolute/path/to/refs/reference.png"]
+}
+```
+
+两个生成工具默认建立独立会话，不复用项目默认会话；可用 `conversation_name` 创建/继续命名会话，或传 `session_key` 继续已有会话。返回的 `media` 包含媒体类型、状态及成功结果的地址和尺寸，视频还可包含实际时长。地址可能过期，不会自动下载文件。实际模型、额度和输出规格仍由网站决定；生成可能消耗本人账号额度。
+
+视频可能先请求确认参数。此时 `media_status=no_media_returned` 表示**尚未返回媒体**，不证明任务已受理。阅读网站回复后，通过 `doubao_chat` 携带同一 `session_key` 回答；异步结果通过 `doubao_media_status` 获取，支持 MCP 重启后查询。系统不会把文字承诺当成生成成功，不会自动确认、重发或轮询。局部蒙版编辑及图生视频尚未开放。
+
+2026-10-19 已验证真实 MCP 图片生成、4 秒视频请求及重启后只读结果查询；网站验收范围见[生成验证记录](docs/DOUBAO_MEDIA_VALIDATION.md)。
+
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DEEPSEEK_USER_TOKEN` | 无，必填 | 本人 DeepSeek 网站 token；未配置则启动失败 |
+| `DEEPSEEK_USER_TOKEN` | 无 | 使用 DeepSeek 时必填；仅使用豆包时可省略 |
+| `DOUBAO_COOKIE` | 无 | 使用豆包时必填，同一次正常聊天请求的完整 Cookie |
+| `DOUBAO_CHAT_URL` | 无 | 使用豆包时必填，带全部查询参数的完整 `POST /chat/completion` URL |
+| `DOUBAO_USER_AGENT` | 无 | 使用豆包时必填，上述同一次请求的 User-Agent |
+| `DOUBAO_TIMEOUT` | `60000` | 豆包整轮操作超时，毫秒；专家/生成/参考图推荐 `120000` |
 | `DEEPSEEK_TIMEOUT` | `60000` | 正整数，单位毫秒；覆盖单次网站操作的 PoW、上传、解析与响应读取 |
 | `WEB_AI_PROJECT_ROOT` | 服务进程工作目录 | 项目会话存储基准目录，建议使用绝对路径 |
 | `WEB_AI_SESSION_STORE_PATH` | `<项目目录>/.web-ai-mcp/sessions.json` | 覆盖私有会话存储位置，建议使用绝对路径 |
@@ -316,20 +360,65 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 
 模板见 [.env.example](.env.example)。`DEEPSEEK_TIMEOUT` 不覆盖 MCP 客户端自己的超时，文件解析阶段另有最多 30 秒的等待限制。
 
-### 实验性 Doubao 纯 HTTP（仅当前源码）
+### 豆包接入：配置参数与获取方式
 
-使用本人豆包网页账号，在开发者工具 Network 中找到自己发出的 `POST /chat/completion`，将 Cookie、完整请求 URL 和 User-Agent **仅保存到本机私有配置**：
+豆包和 DeepSeek 使用同一个 npm 包，只需要增加豆包环境变量。可以只启用豆包，也可以和 DeepSeek 同时启用，不需要另起一个 MCP 服务或配置远程地址。
+
+先在浏览器获取本人登录请求的三个值：
+
+1. 登录 [豆包官网](https://www.doubao.com/chat/)，确认本人账号能正常聊天。
+2. 打开开发者工具（macOS：`⌥⌘I`；Windows：`F12`），选择 **Network / 网络**，按需勾选 **Preserve log / 保留日志**。
+3. 在网页发送一句不敏感的测试消息，在 Network 中筛选 `completion`，选中本次正常完成的 **`POST https://www.doubao.com/chat/completion?...`** 请求。
+4. 打开 **Headers / 标头**，从下面三个位置取值；必须来自**同一次请求**。
+
+| 配置参数 | 获取位置 | 保存内容 |
+| --- | --- | --- |
+| `DOUBAO_CHAT_URL` | General / 常规 → Request URL / 请求网址 | 从 `https://` 开始的完整 URL，保留 `?` 后全部查询参数 |
+| `DOUBAO_COOKIE` | Request Headers / 请求标头 → `Cookie` | 完整 Cookie 字符串，只取字段值，不包含 `Cookie:` 名称 |
+| `DOUBAO_USER_AGENT` | Request Headers / 请求标头 → `User-Agent` | 完整字段值，不包含 `User-Agent:` 名称 |
+
+Cookie 至少应包含 `sessionid`（或 `sessionid_ss`）、`passport_csrf_token`（或 `passport_csrf_token_default`）和 `s_v_web_id`。完整 URL 应保留 `aid`、`device_id`、`web_id`、`tea_uuid`、`fp`、`pc_version`、`region`、`sys_region`、`web_tab_id` 等网页实际参数；其中 `fp` 必须与 Cookie 的 `s_v_web_id` 一致。不要只填官网首页地址，不要手工拼设备信息或签名参数。
+
+在 Qoder、WorkBuddy 或其他支持 `mcpServers` 的客户端，合并以下配置；真实凭据只填在本机私有文件中。示例同时启用两个网站，仅用豆包时删掉 `DEEPSEEK_USER_TOKEN`：
+
+```json
+{
+  "mcpServers": {
+    "web-ai": {
+      "command": "npx",
+      "args": ["-y", "web-ai-mcp@0.2.0"],
+      "env": {
+        "DEEPSEEK_USER_TOKEN": "YOUR_OWN_DEEPSEEK_WEB_TOKEN",
+        "DOUBAO_COOKIE": "YOUR_COMPLETE_REQUEST_COOKIE",
+        "DOUBAO_CHAT_URL": "YOUR_COMPLETE_REQUEST_URL_WITH_QUERY",
+        "DOUBAO_USER_AGENT": "YOUR_SAME_REQUEST_USER_AGENT",
+        "DEEPSEEK_TIMEOUT": "120000",
+        "DOUBAO_TIMEOUT": "120000",
+        "WEB_AI_PROJECT_ROOT": "/absolute/path/to/your-project",
+        "WEB_AI_ALLOWED_ROOTS": "/absolute/path/to/your-project/refs",
+        "WEB_AI_SESSION_TTL_MINUTES": "0"
+      }
+    }
+  }
+}
+```
+
+已有 `web-ai` / `web-ai-mcp` 配置时，更新原来的服务项，保留其他 MCP。Qoder 的本机 `~/.qoder/settings.json` 使用 `mcpServers`；WorkBuddy 使用 `~/.workbuddy/mcp.json`。客户端找不到 `npx` 时使用其绝对路径；修改后重新连接该 MCP。`WEB_AI_ALLOWED_ROOTS` 仅文件分析/参考图需要，只聊天可以删掉；其余可选参数见上表。
+
+也可以把网站凭据集中放在本机私有 env 文件中，再使用 `args: ["-y", "web-ai-mcp@0.2.0", "--env-file", "/private/path/web-ai.env"]`。内容示例：
 
 ```dotenv
 DOUBAO_COOKIE="sessionid=...; passport_csrf_token=...; s_v_web_id=..."
 DOUBAO_CHAT_URL="完整的本人 /chat/completion 请求 URL（包含 query 参数）"
 DOUBAO_USER_AGENT="该请求的 User-Agent"
-DOUBAO_TIMEOUT=60000
+DOUBAO_TIMEOUT=120000
 ```
 
-URL 是配置占位值，不可直接使用。URL 参数中的 `fp` 必须匹配 Cookie 的 `s_v_web_id`；不使用其他账号的设备参数，不在 Issue、聊天或 Git 中分享 Cookie、签名 URL。服务不自动加载 `.env`，通过 `node dist/index.js --env-file /private/path/.env` 启动。仅配置豆包时无需 DeepSeek token；两者同时配置时都可发现工具。
+以上都是占位值，必须替换为自己的请求字段。服务不自动查找 `.env`，需要显式 `--env-file`；同名参数以进程已有环境变量为准。文件只保存在本机，macOS/Linux 建议权限 `600`。Cookie、完整请求 URL 和带真实值的配置都不要发到聊天、Issue 或 Git 中。
 
-提供 `doubao_chat`、`doubao_reasoner`、`doubao_analyze_files`、`doubao_sessions_list`、`doubao_session_close`，加上 `webai_providers` 共六个工具。已有其他 Provider 的项目默认会被忽略，不会串用会话；只有回复携带完整可校验 lineage 时才返回可续聊 key，续聊回复必须推进消息索引。
+豆包有 8 个工具：`doubao_chat`、`doubao_reasoner`、`doubao_analyze_files`、`doubao_generate_image`、`doubao_generate_video`、`doubao_media_status`、`doubao_sessions_list`、`doubao_session_close`，加上 `webai_providers` 共 9 个。先通过 `webai_providers` 检查已启用网站，再调用 `doubao_chat` 发送一句测试消息。已有其他 Provider 的项目默认会被忽略，不会串用会话；只有回复携带完整可校验 lineage 时才返回可续聊 key，续聊回复必须推进消息索引。
+
+登录过期或请求上下文变化时，从本人正常网页请求重新获取这三个值并重连 MCP。若返回 `captcha_required`，先停止调用并按官网实际呈现的验证要求手动处理；不应通过重复测试或更换账号继续发送。原网页不一定自动显示由 HTTP 请求触发的挑战。
 
 - `doubao_chat` 默认快速模式；传 `mode: "expert"` 或 `thinking: true` 使用已实测的专家思考模式。若同时提供两者，必须一致。`show_reasoning: true` 显示网站返回的可见思考；默认只返回答案。
 - `doubao_reasoner` 固定专家模式，支持本地 ID/名称、`make_default`、`system_prompt` 文本前缀和 `show_reasoning`。
@@ -390,7 +479,7 @@ npx tsx scripts/probe-doubao.ts --env-file /private/path/.env --live --features
 | --- | --- |
 | `setup:upstream` 下载失败 | 检查 GitHub 访问和本机 Git / 代理配置，恢复网络后重新执行；不要跳过 WASM 导入 |
 | `Missing upstream WASM` / `pow_unavailable` | 在仓库根目录依次执行 `npm run setup:upstream`、`npm run build` |
-| npx 的 WASM 下载或校验失败 | 检查 `raw.githubusercontent.com` 访问，执行 `npx -y web-ai-mcp@0.1.2 --setup`；或指定正确的本机 `WEB_AI_WASM_PATH`。损坏文件保留，不会自动覆盖 |
+| npx 的 WASM 下载或校验失败 | 检查 `raw.githubusercontent.com` 访问，执行 `npx -y web-ai-mcp@0.2.0 --setup`；或指定正确的本机 `WEB_AI_WASM_PATH`。损坏文件保留，不会自动覆盖 |
 | `npx` 返回 npm 404 | 核对包名、版本和 registry；推荐官方 https://registry.npmjs.org，镜像可能有同步延迟 |
 | `Missing DEEPSEEK_USER_TOKEN` | 检查服务配置的 `env.DEEPSEEK_USER_TOKEN`，修改后重启；仅在选择文件方式时检查 `--env-file` |
 | 本地测试通过，真实聊天失败 | 本地测试使用模拟网站，不验证账号权限、登录状态或当前网站兼容性 |
@@ -444,7 +533,7 @@ npx -y @modelcontextprotocol/inspector --cli node dist/index.js \
   -e DEEPSEEK_USER_TOKEN=local-discovery-placeholder --method tools/list
 ```
 
-预期发现上文列出的六个工具。工具发现成功不等于真实聊天成功。
+仅 DeepSeek 为 6 个工具，仅豆包为 9 个，两者同时配置为 14 个。工具发现成功不等于真实聊天成功。
 
 ### 可选：本人账号网站 smoke
 

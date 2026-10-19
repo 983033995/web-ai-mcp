@@ -7,6 +7,28 @@ export interface ProviderCapabilities {
   files: boolean;
   webSearch: boolean;
   sessionResume: boolean;
+  imageGeneration?: boolean;
+  videoGeneration?: boolean;
+}
+
+export interface MediaGenerationRequest {
+  kind: "image" | "video";
+  prompt: string;
+  model?: string;
+  style?: string;
+  referenceImages?: FileInput[];
+  ratio?: string;
+  durationSeconds?: number;
+  signal?: AbortSignal;
+}
+
+export interface GeneratedMedia {
+  type: "image" | "video";
+  status: "pending" | "completed" | "unavailable";
+  url?: string;
+  width?: number;
+  height?: number;
+  durationSeconds?: number;
 }
 
 export interface ChatRequest {
@@ -22,6 +44,7 @@ export interface ProviderResult {
   remoteSession?: RemoteSession;
   usage?: Record<string, number>;
   warning?: string;
+  media?: GeneratedMedia[];
 }
 
 /** A failed write may have advanced website state even without a usable reply. */
@@ -43,4 +66,6 @@ export interface WebAIProvider {
   initialize(): Promise<void>;
   chat(request: ChatRequest, session?: RemoteSession): Promise<ProviderResult>;
   analyzeFiles?(files: FileInput[], instruction: string, thinking: boolean, signal?: AbortSignal): Promise<ProviderResult>;
+  generateMedia?(request: MediaGenerationRequest, session?: RemoteSession): Promise<ProviderResult>;
+  getMedia?(session: RemoteSession, signal?: AbortSignal): Promise<ProviderResult>;
 }

@@ -1,8 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import type { ChatRequest, FileInput, RemoteSession } from "../../core/provider.js";
+import type { ChatRequest, FileInput, MediaGenerationRequest, ProviderResult, RemoteSession } from "../../core/provider.js";
 import { DoubaoWebError, businessError, captchaError, httpError } from "./errors.js";
 import { parseSSE, type DoubaoWebReply } from "./sse.js";
-import { DoubaoUploader, type DoubaoAttachment } from "./upload.js";
+import { DoubaoUploader, validateReferenceImage, type DoubaoAttachment, type DoubaoImageAttachment } from "./upload.js";
+import { creationAbility, creationMedia } from "./media.js";
 
 export interface DoubaoClientOptions {
   chatUrl?: string;
@@ -15,6 +16,10 @@ const configuration = () => new DoubaoWebError("configuration_error",
   "Configure DOUBAO_COOKIE, DOUBAO_CHAT_URL and DOUBAO_USER_AGENT from your own website request; never share credentials.");
 const sessionError = () => new DoubaoWebError("session_state_error", "Invalid Doubao remote session; close it explicitly before starting another conversation");
 const remoteId = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0 && value.length <= 256;
+function validateSession(previous: RemoteSession): void {
+  if (!remoteId(previous.conversationId) || !remoteId(previous.sectionId) || !remoteId(previous.lastMessageId) ||
+      !remoteId(previous.localConversationId) || !Number.isSafeInteger(previous.lastMessageIndex) || Number(previous.lastMessageIndex) < 0) throw sessionError();
+}
 
 export class DoubaoWebClient {
   private readonly url: URL;
@@ -61,6 +66,77 @@ export class DoubaoWebClient {
     return this.send(request, previous);
   }
 
+  async generateMedia(request: MediaGenerationRequest, previous?: RemoteSession): Promise<DoubaoWebReply> {
+    const ability = creationAbility(request);
+    for (const image of request.referenceImages ?? []) validateReferenceImage(image);
+    // The website carries selected controls in both ability parameters and the visible instruction.
+    const controls = [request.style ? `图片风格为${request.style}` : undefined,
+      request.ratio && request.ratio !== "auto" ? request.ratio : undefined,
+      request.kind === "video" ? `${request.durationSeconds ?? 4}s` : undefined].filter(Boolean);
+    const message = `${request.kind === "image" ? "生成图片" : "生成视频"}：${request.prompt}${controls.length ? `，${controls.join("，")}` : ""}`;
+    return this.send({ message, thinking: false, signal: request.signal }, previous, [], ability, request.referenceImages);
+  }
+
+  /** Read the same website history endpoint used by a page reload; never submits a generation. */
+  async getMedia(previous: RemoteSession, signal?: AbortSignal): Promise<ProviderResult> {
+    validateSession(previous);
+    if (this.verificationBlocked) throw captchaError();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeout);
+    const abort = () => controller.abort(signal?.reason);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+    try {
+      controller.signal.throwIfAborted();
+      const url = new URL(this.url); url.pathname = "/im/chain/single";
+      const response = await this.request(url, { method: "POST", redirect: "error", signal: controller.signal,
+        headers: { "Content-Type": "application/json; encoding=utf-8", "Agw-Js-Conv": "str", Cookie: this.cookie,
+          "User-Agent": this.userAgent, "x-tt-passport-csrf-token": this.csrf, Origin: this.url.origin, Referer: "https://www.doubao.com/chat" },
+        body: JSON.stringify({ cmd: 3100, uplink_body: { pull_singe_chain_uplink_body: {
+          conversation_id: previous.conversationId, anchor_index: Number.MAX_SAFE_INTEGER, conversation_type: 3, direction: 1,
+          limit: 20, ext: {}, filter: { index_list: [] }, evaluate_ab_params: "", evaluate_common_params: "", option: { lazy_load_strategy: 0 }
+        } }, sequence_id: String(Date.now()), channel: 2, version: "1" }) });
+      if (!response.ok) { await response.body?.cancel(); throw httpError(response.status); }
+      if (!response.headers.get("content-type")?.startsWith("application/json")) {
+        await response.body?.cancel(); throw new DoubaoWebError("invalid_response", "Expected Doubao history JSON");
+      }
+      const payload = await this.readJSON(response, controller.signal, 2 * 1024 * 1024) as Record<string, any>;
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new DoubaoWebError("invalid_response", "Invalid Doubao history JSON");
+      const failure = businessError(payload);
+      if (failure) throw failure;
+      if (payload.status_code !== 0 && payload.status_code !== "0") {
+        throw businessError({ code: payload.status_code }) ?? new DoubaoWebError("website_error", "Doubao history request failed");
+      }
+      const messages = payload.downlink_body?.pull_singe_chain_downlink_body?.messages;
+      if (!Array.isArray(messages) || messages.length > 20) throw new DoubaoWebError("invalid_response", "Invalid Doubao history");
+      const media = [];
+      const remote = { ...previous };
+      for (const message of messages) {
+        if (!message || message.conversation_id !== previous.conversationId) throw new DoubaoWebError("invalid_response", "History conversation mismatch");
+        if (message.user_type !== 2) continue;
+        const index = typeof message.index_in_conv === "string" && /^\d+$/.test(message.index_in_conv) ? Number(message.index_in_conv) : message.index_in_conv;
+        if (!Number.isSafeInteger(index) || index < 0 || !remoteId(message.message_id) || !remoteId(message.section_id) ||
+            !Array.isArray(message.content_block)) throw new DoubaoWebError("invalid_response", "Invalid history reply");
+        for (const block of message.content_block) {
+          if (block?.block_type === 2074) media.push(...creationMedia(block.content?.creation_block));
+        }
+        if (index > Number(remote.lastMessageIndex)) {
+          remote.lastMessageId = message.message_id; remote.lastMessageIndex = index; remote.sectionId = message.section_id;
+        } else if (index === remote.lastMessageIndex && message.message_id !== remote.lastMessageId) {
+          throw new DoubaoWebError("invalid_response", "Conflicting history reply lineage");
+        }
+      }
+      return { content: "Media from the latest 20 messages in this conversation.", media, remoteSession: remote };
+    } catch (error) {
+      if (controller.signal.aborted) throw new DoubaoWebError(signal?.aborted ? "cancelled" : "timeout_error", "Doubao history request interrupted");
+      if (error instanceof DoubaoWebError) {
+        if (error.code === "captcha_required") this.verificationBlocked = true;
+        throw new DoubaoWebError(error.code, error.message);
+      }
+      throw new DoubaoWebError("network_error", "Doubao history transport failed; no automatic retry was performed");
+    } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); }
+  }
+
   async analyzeFiles(files: FileInput[], instruction: string, thinking: boolean, signal?: AbortSignal): Promise<DoubaoWebReply> {
     if (!files.length || files.length > 5 || files.reduce((size, file) => size + file.buffer.length, 0) > 20 * 1024 * 1024) {
       throw new DoubaoWebError("invalid_request", "Select up to five TXT files totaling at most 20 MiB");
@@ -71,11 +147,10 @@ export class DoubaoWebClient {
     return this.send({ message: instruction, thinking, signal }, undefined, files);
   }
 
-  private async send(request: ChatRequest, previous?: RemoteSession, files: FileInput[] = []): Promise<DoubaoWebReply> {
+  private async send(request: ChatRequest, previous?: RemoteSession, files: FileInput[] = [], ability?: ReturnType<typeof creationAbility>, referenceImages: FileInput[] = []): Promise<DoubaoWebReply> {
     if (this.verificationBlocked) throw captchaError();
     if (!request.message.trim()) throw new DoubaoWebError("invalid_request", "Message must not be empty");
-    if (previous && (!remoteId(previous.conversationId) || !remoteId(previous.sectionId) || !remoteId(previous.lastMessageId) ||
-        !remoteId(previous.localConversationId) || !Number.isSafeInteger(previous.lastMessageIndex) || Number(previous.lastMessageIndex) < 0)) throw sessionError();
+    if (previous) validateSession(previous);
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
@@ -85,30 +160,36 @@ export class DoubaoWebClient {
     let sent = false;
     try {
       controller.signal.throwIfAborted();
-      const attachments: DoubaoAttachment[] = [];
+      const attachments: Array<DoubaoAttachment | DoubaoImageAttachment> = [];
       for (const file of files) attachments.push(await this.uploader.upload(file, controller.signal));
+      for (const file of referenceImages) attachments.push(await this.uploader.uploadImage(file, controller.signal));
+      const attachmentBlocks = attachments.length ? [{ block_type: 10052, block_id: randomUUID(), parent_id: "", meta_info: [], append_fields: [], extra_info: {},
+        content: { attachment_block: { attachments }, pc_event_block: "" } }] : [];
       const localConversationId = previous ? previous.localConversationId as string : `local_${randomBytes(8).toString("hex")}`;
       const deepThink = request.thinking ? 3 : 0;
       const body = {
+        ...(ability ? { chat_ability: ability } : {}),
         client_meta: {
           bot_id: "7338286299411103781", conversation_id: previous?.conversationId ?? "",
           last_message_index: previous?.lastMessageIndex ?? null, last_section_id: previous?.sectionId ?? "",
           local_conversation_id: localConversationId
         },
-        messages: [{ local_message_id: randomUUID(), message_status: 0, content_block: [
-          ...(attachments.length ? [{ block_type: 10052, block_id: randomUUID(), parent_id: "", meta_info: [], append_fields: [], extra_info: {},
-            content: { attachment_block: { attachments }, pc_event_block: "" } }] : []), {
+        messages: [...(referenceImages.length ? [{ local_message_id: randomUUID(), message_status: 0, content_block: attachmentBlocks }] : []),
+          { local_message_id: randomUUID(), message_status: 0, content_block: [
+          ...(!referenceImages.length ? attachmentBlocks : []), {
           block_type: 10000, block_id: randomUUID(), parent_id: "", meta_info: [], append_fields: [], extra_info: {},
           content: { pc_event_block: "", text_block: { text: request.systemPrompt ? `${request.systemPrompt}\n\n${request.message}` : request.message,
             icon_url: "", icon_url_dark: "", summary: "" } }
         }] }],
         option: {
-          agent_mode: 2, need_create_conversation: !previous, need_deep_think: deepThink,
-          model_config: { model_item_key: request.thinking ? "3" : "0", model_extra_params: {}, reasoning_effort: 4 },
+          ...(ability ? { general_task_param: { server_do_compare: true } } : { agent_mode: 2 }),
+          need_create_conversation: !previous, need_deep_think: deepThink,
+          model_config: { model_item_key: ability ? "" : request.thinking ? "3" : "0", model_extra_params: {}, ...(ability ? {} : { reasoning_effort: 4 }) },
           conversation_init_option: { need_ack_conversation: true },
           unique_key: randomUUID(), sse_recv_event_options: { support_chunk_delta: true }
         },
-        ext: { agent_mode: "2", use_deep_think: String(deepThink) }
+        ext: ability ? { general_task_param: JSON.stringify({ server_do_compare: true }), commerce_credit_config_enable: "0" }
+          : { agent_mode: "2", use_deep_think: String(deepThink) }
       };
       sent = true;
       const response = await this.request(this.url, {
@@ -148,7 +229,7 @@ export class DoubaoWebClient {
     }
   }
 
-  private async readJSON(response: Response, signal: AbortSignal): Promise<unknown> {
+  private async readJSON(response: Response, signal: AbortSignal, limit = 64 * 1024): Promise<unknown> {
     if (!response.body) throw new DoubaoWebError("invalid_response", "Empty Doubao JSON response", true);
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -163,7 +244,7 @@ export class DoubaoWebClient {
         signal.throwIfAborted();
         if (done) break;
         size += value.byteLength;
-        if (size > 64 * 1024) throw new DoubaoWebError("invalid_response", "Oversized Doubao JSON response", true);
+        if (size > limit) throw new DoubaoWebError("invalid_response", "Oversized Doubao JSON response", true);
         text += decoder.decode(value, { stream: true });
       }
       text += decoder.decode();

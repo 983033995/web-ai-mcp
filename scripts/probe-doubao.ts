@@ -44,7 +44,7 @@ async function featureProbe(): Promise<void> {
   try {
     await connect();
     const tools = (await client!.listTools()).tools.map(tool => tool.name);
-    if (tools.length !== 6 || !["doubao_chat", "doubao_reasoner", "doubao_analyze_files"].every(name => tools.includes(name))) throw new ProviderError("Missing feature tools", "live_validation_failed");
+    if (tools.length !== 9 || !["doubao_chat", "doubao_reasoner", "doubao_analyze_files", "doubao_generate_image", "doubao_generate_video", "doubao_media_status"].every(name => tools.includes(name))) throw new ProviderError("Missing feature tools", "live_validation_failed");
     const marker = "expert-" + randomUUID();
     const expert = await call("doubao_reasoner", { message: `计算 9240 的正因数个数，给出公式，最后写 RESULT=正确数字。记住标记 ${marker} 供下一轮回忆。不要联网。`, show_reasoning: true });
     const answer = expert.split("## Doubao answer")[1] || "";
@@ -67,7 +67,7 @@ async function featureProbe(): Promise<void> {
     if (!followup.includes(fileMarker) || !/\b89\b/.test(followup) || key(followup) !== fileKey) throw new ProviderError("File context did not survive MCP restart", "live_validation_failed");
     const disk = await readFile(env.WEB_AI_SESSION_STORE_PATH, "utf8");
     if (disk.includes(marker) || disk.includes(fileMarker) || disk.includes(env.DOUBAO_COOKIE)) throw new ProviderError("Private store contains message or credential data", "live_validation_failed");
-    console.log(JSON.stringify({ mode: "live product MCP stdio", passed: ["six Doubao tools discovered", "expert answer and separate thinking", "expert-to-quick context", "Node TXT upload and file readback", "file follow-up after MCP restart", "store excludes messages and credentials"] }));
+    console.log(JSON.stringify({ mode: "live product MCP stdio", passed: ["nine Doubao tools discovered (generation not exercised)", "expert answer and separate thinking", "expert-to-quick context", "Node TXT upload and file readback", "file follow-up after MCP restart", "store excludes messages and credentials"] }));
   } finally {
     await client?.close(); await transport?.close();
     await rm(directory, { recursive: true, force: true });

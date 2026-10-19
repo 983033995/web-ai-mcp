@@ -38,5 +38,10 @@
 - [x] Verify actual MCP stdio expert answer, separate reasoning and expert-to-quick same-conversation recall
 - [x] Complete actual MCP expert thinking, TXT analysis and restart follow-up after manual website verification and fresh request capture (2026-10-14; four-message product stdio probe passed without bypass)
 
+- [x] Implement requested Doubao text-to-image and text-to-video generation, actual creation-card results and bounded read-only asynchronous result lookup (requested 2026-10-19)
+- [x] Verify actual MCP image generation, four-second video request and result retrieval after MCP restart; result URL range requests return image/png and video/mp4 (2026-10-19; see DOUBAO_MEDIA_VALIDATION.md)
+- [x] Add per-call selection of the four observed image and video models, default video to Seedance 2.0 Fast, and validate model-specific durations before HTTP dispatch (requested 2026-10-19)
+- [x] Add observed image ratios and 32 styles plus allowed local PNG/JPEG/WebP reference uploads; verify actual MCP reference generation at 3:4 and default Fast video (requested 2026-10-19)
+
 ## Codex kickoff prompt
 Read AGENTS.md, README.md, docs/ARCHITECTURE.md, docs/PRD.md, and docs/CODEX_TASKS.md. This is an own-account stdio Web AI MCP, not CLIProxyAPI. DeepSeek is released; Doubao source integration was explicitly requested and remains experimental. Respect credential confidentiality, WEB_AI_ALLOWED_ROOTS and live-validation limits. Do not invent capabilities or bypass access controls.

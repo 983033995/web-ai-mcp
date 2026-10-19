@@ -1,9 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { FileInput, ProviderResult, WebAIProvider } from "../core/provider.js";
+import type { FileInput, MediaGenerationRequest, ProviderResult, WebAIProvider } from "../core/provider.js";
 import { readAllowedFiles } from "../core/files.js";
 import { ProviderError } from "../core/provider.js";
 import type { SessionStore } from "../core/session-store.js";
+import { DOUBAO_IMAGE_MODELS, DOUBAO_VIDEO_MODELS, DOUBAO_IMAGE_RATIOS, DOUBAO_VIDEO_RATIOS, DOUBAO_IMAGE_STYLES } from "../providers/doubao/media.js";
 
 const textResult = (text: string, error = false) => ({
   content: [{ type: "text" as const, text }],
@@ -33,6 +34,8 @@ const safeProviderMessages: Readonly<Record<string, string>> = {
   invalid_file: "Select nonempty TXT files with safe filenames, each at most 10 MiB.",
   upload_integrity_error: "Doubao storage did not confirm the file checksum; no chat was sent.",
   upload_commit_error: "Doubao did not confirm the uploaded file; no chat was sent.",
+  invalid_reference_image: "Select PNG, JPEG or WebP reference images with matching file contents, at most 10 MiB each and 20 MiB total.",
+  reference_image_access_error: "Check WEB_AI_ALLOWED_ROOTS and absolute reference image paths. Only ordinary PNG, JPEG and WebP files are supported.",
 };
 
 const safeSessionMessages = new Set([
@@ -66,10 +69,16 @@ function redact(error: unknown): string {
   return "Doubao request failed; upstream error details are not exposed.";
 }
 
-function formatAnswer(result: ProviderResult, key?: string, showReasoning = false) {
+function formatAnswer(result: ProviderResult, key?: string, showReasoning = false, generation = false) {
   const chunks: string[] = [];
   if (showReasoning && result.reasoning) chunks.push("## Doubao thinking\n\n" + result.reasoning);
   chunks.push("## Doubao answer\n\n" + result.content);
+  if (result.media?.length || generation) {
+    const media = result.media ?? [];
+    const status = !media.length ? "no_media_returned" : media.every(item => item.status === "completed") ? "completed" : "incomplete";
+    chunks.push(JSON.stringify({ media_status: status, media }, null, 2));
+    if (!media.length) chunks.push("No generated media was returned. Read the website reply for confirmation or clarification; query doubao_media_status later for asynchronous results. Do not resubmit automatically.");
+  }
   if (key) chunks.push("session_key: " + key + "\nconversation_id: " + key);
   if (result.warning) chunks.push("warning: " + result.warning);
   return textResult(chunks.join("\n\n---\n\n"));
@@ -98,6 +107,7 @@ export function registerDoubaoTools(
       thinking: boolean;
       showReasoning: boolean;
       files?: FileInput[];
+      generation?: MediaGenerationRequest;
       signal: AbortSignal;
     }
   ) => {
@@ -110,7 +120,7 @@ export function registerDoubaoTools(
         throw new Error("Use conversation_id/session_key or conversation_name, not both");
       }
       return await sessions.exclusive(requestedKey ?? options.name ?? "project-chat", async () => {
-        const selected = requestedKey ?? (options.name || options.files ? undefined : sessions.defaultKey(provider.id));
+        const selected = requestedKey ?? (options.name || options.files || options.generation ? undefined : sessions.defaultKey(provider.id));
         const previous = selected
           ? sessions.require(selected, provider.id)
           : options.name
@@ -126,7 +136,9 @@ export function registerDoubaoTools(
           });
         sessions.beginTurn(record.key);
         try {
-          const result = options.files && provider.analyzeFiles
+          const result = options.generation && provider.generateMedia
+            ? await provider.generateMedia(options.generation, previous?.remote)
+            : options.files && provider.analyzeFiles
             ? await provider.analyzeFiles(options.files, message, options.thinking, options.signal)
             : await provider.chat({ message, systemPrompt: options.systemPrompt, thinking: options.thinking,
                 signal: options.signal }, previous?.remote);
@@ -136,7 +148,7 @@ export function registerDoubaoTools(
           } else {
             sessions.invalidate(record.key);
           }
-          return formatAnswer(result, result.remoteSession ? record.key : undefined, options.showReasoning);
+          return formatAnswer(result, result.remoteSession ? record.key : undefined, options.showReasoning, Boolean(options.generation));
         } catch (error) {
           if (error instanceof ProviderError && !error.sessionUncertain) {
             sessions.cancelTurn(record.key);
@@ -220,6 +232,49 @@ export function registerDoubaoTools(
       return await sendChat(instruction, { files, thinking: expert, showReasoning: show_reasoning ?? false,
         makeDefault: make_default, signal: extra.signal });
     } catch (error) { return textResult("[doubao file error] " + redact(error), true); }
+  });
+
+  if (provider.generateMedia) {
+    const selectors = { session_key: z.string().uuid().optional(), conversation_name: z.string().trim().min(1).max(80).optional() };
+    const generate = async (request: MediaGenerationRequest, session_key?: string, conversation_name?: string, referencePaths?: string[]) => {
+      try {
+        if (referencePaths) {
+          try { request.referenceImages = await readAllowedFiles(referencePaths, request.signal!); }
+          catch { throw new ProviderError("Reference image read rejected", request.signal?.aborted ? "cancelled" : "reference_image_access_error"); }
+        }
+        return await sendChat(request.prompt, { key: session_key, name: conversation_name, generation: request,
+          thinking: false, showReasoning: false, signal: request.signal! });
+      } catch (error) { return textResult("[doubao image error] " + redact(error), true); }
+    };
+    server.registerTool("doubao_generate_image", {
+      description: "Generate an image through your Doubao website account. Select model (default Seedream 5.0 Flash), ratio and optional website style. reference_image_paths uploads up to five PNG/JPEG/WebP files from WEB_AI_ALLOWED_ROOTS (10 MiB each, 20 MiB total). Creates a separate conversation by default. Returns actual creation URLs or a clarification. Website controls access/quota; no fallback or automatic resubmission.",
+      inputSchema: z.object({ prompt: z.string().trim().min(1).max(10000), model: z.enum(DOUBAO_IMAGE_MODELS).default(DOUBAO_IMAGE_MODELS[0]),
+        ratio: z.enum(DOUBAO_IMAGE_RATIOS).default("auto"), style: z.enum(Object.keys(DOUBAO_IMAGE_STYLES) as [string, ...string[]]).optional(),
+        reference_image_paths: z.array(z.string().min(1)).min(1).max(5).optional(), ...selectors }).strict(),
+    }, ({ prompt, model, ratio, style, reference_image_paths, session_key, conversation_name }, extra) =>
+      generate({ kind: "image", prompt, model, ratio, style, signal: extra.signal }, session_key, conversation_name, reference_image_paths));
+    server.registerTool("doubao_generate_video", {
+      description: "Request a Doubao website video. Default model Seedance 2.0 Fast. Seedance 2.5 allows 4–30 seconds; other supported models allow 4–15 seconds. Creates a separate conversation by default. The website may ask for confirmation; use doubao_chat with the returned key. Query doubao_media_status for asynchronous results. Model access/quota are controlled by the website; no fallback. Text acknowledgement is not completion.",
+      inputSchema: z.object({ prompt: z.string().trim().min(1).max(10000),
+        model: z.enum(DOUBAO_VIDEO_MODELS).default(DOUBAO_VIDEO_MODELS[0]),
+        ratio: z.enum(DOUBAO_VIDEO_RATIOS).default("auto"),
+        duration_seconds: z.number().int().min(4).max(30).default(4), ...selectors }).strict(),
+    }, ({ prompt, model, ratio, duration_seconds, session_key, conversation_name }, extra) =>
+      generate({ kind: "video", prompt, model, ratio, durationSeconds: duration_seconds, signal: extra.signal }, session_key, conversation_name));
+  }
+
+  if (provider.getMedia) server.registerTool("doubao_media_status", {
+    description: "Read generated images/videos from the latest 20 messages of an existing local Doubao session. Read-only website query; never submits or retries generation. Can retrieve asynchronously delivered video results after MCP restart.",
+    inputSchema: z.object({ session_key: z.string().uuid() }).strict(),
+  }, async ({ session_key }, extra) => {
+    try {
+      return await sessions.exclusive(session_key, async () => {
+        const record = sessions.require(session_key, provider.id);
+        const result = await provider.getMedia!(record.remote, extra.signal);
+        if (result.remoteSession) sessions.update(session_key, result.remoteSession);
+        return formatAnswer(result, session_key, false, true);
+      });
+    } catch (error) { return textResult("[doubao media error] " + redact(error), true); }
   });
 
   server.tool(
