@@ -10,6 +10,10 @@ export class ProviderRegistry {
     this.providers.set(provider.id, provider);
   }
 
+  has(id: string): boolean {
+    return this.providers.has(id);
+  }
+
   get(id: string): WebAIProvider {
     const provider = this.providers.get(id);
     if (!provider) throw new Error("Provider not available: " + id);

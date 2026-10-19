@@ -88,7 +88,7 @@ try {
   assert.ok(token?.trim());
   directory = await mkdtemp(resolve(".validation-smoke-"));
   const env = { DEEPSEEK_USER_TOKEN: token, DEEPSEEK_TIMEOUT: process.env.DEEPSEEK_TIMEOUT || "120000",
-    WEB_AI_PROJECT_ROOT: directory, WEB_AI_SESSION_TTL_MINUTES: "0" };
+    DOUBAO_COOKIE: "", WEB_AI_PROJECT_ROOT: directory, WEB_AI_SESSION_TTL_MINUTES: "0" };
   if (process.env.WEB_AI_WASM_PATH) env.WEB_AI_WASM_PATH = process.env.WEB_AI_WASM_PATH;
   if (!live) {
     website = localWebsite();
@@ -135,8 +135,8 @@ try {
   const providers = JSON.parse(await successful("webai_providers"));
   assert.deepEqual(providers.active.map((provider) => provider.id), ["deepseek"]);
   assert.equal(providers.active[0].capabilities.webSearch, false);
-  assert.equal(providers.planned[0].status, "not_implemented");
-  evidence.push("DeepSeek active; Doubao not implemented; search disabled");
+  assert.equal(providers.planned[0].status, "not_configured");
+  evidence.push("DeepSeek active; experimental Doubao not configured; search disabled");
 
   const first = await successful("deepseek_chat", { message: `请记住测试标记 ${marker}。只回答 OK。`,
     conversation_name: "smoke-project", make_default: true });

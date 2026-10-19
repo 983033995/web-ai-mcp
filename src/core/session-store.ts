@@ -144,7 +144,11 @@ export class SessionStore {
     return found ? this.require(found.key, providerId) : undefined;
   }
 
-  defaultKey(): string | undefined { if (!this.diskLocked) this.load(); return this.defaultSessionKey; }
+  defaultKey(providerId?: string): string | undefined {
+    if (!this.diskLocked) this.load();
+    if (providerId && this.defaultSessionKey && this.sessions.get(this.defaultSessionKey)?.providerId !== providerId) return undefined;
+    return this.defaultSessionKey;
+  }
   selectDefault(key: string, providerId: string): void {
     this.mutate(() => { this.require(key, providerId); this.defaultSessionKey = key; });
   }
@@ -181,11 +185,13 @@ export class SessionStore {
     return Array.from(this.sessions.values()).filter((r) => this.busy.has(r.key) || !this.expired(r))
       .map(({ remote: _remote, ...safe }) => safe);
   }
-  delete(key: string): boolean {
+  delete(key: string, providerId?: string): boolean {
     if (this.busy.has(key)) throw new Error("Session is busy; cannot remove");
     const inFlight = this.diskLocked || this.busy.size > 0;
     return this.mutate(() => {
-      if (inFlight && this.sessions.get(key)?.state === "pending") throw new Error("Session is busy; cannot remove");
+      const record = this.sessions.get(key);
+      if (providerId && record && record.providerId !== providerId) throw new Error("Session belongs to another provider");
+      if (inFlight && record?.state === "pending") throw new Error("Session is busy; cannot remove");
       if (this.defaultSessionKey === key) this.defaultSessionKey = undefined;
       return this.sessions.delete(key);
     });

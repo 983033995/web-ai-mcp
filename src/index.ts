@@ -9,6 +9,7 @@ import { parseArgs } from "node:util";
 import { loadPowWasm } from "./providers/deepseek/wasm.js";
 import { registerProviders } from "./providers/index.js";
 import { registerDeepSeekTools } from "./tools/deepseek.js";
+import { registerDoubaoTools } from "./tools/doubao.js";
 
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: {
@@ -17,7 +18,7 @@ async function main(): Promise<void> {
   } });
   const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
   if (values.help) {
-    console.log("web-ai-mcp [--env-file /absolute/path/.env] [--setup] [--version]\n\nNo options: start the local stdio MCP server. Requires DEEPSEEK_USER_TOKEN.\n--setup: download and verify pinned PoW WASM in local cache; no website credentials required.\n--env-file: load local configuration (existing environment variables take precedence).\nFirst startup downloads WASM if no local file/cache exists; see THIRD_PARTY_NOTICES.md.");
+    console.log("web-ai-mcp [--env-file /absolute/path/.env] [--setup] [--version]\n\nNo options: start the local stdio MCP server. Configure DEEPSEEK_USER_TOKEN or experimental DOUBAO_COOKIE + DOUBAO_CHAT_URL + DOUBAO_USER_AGENT.\n--setup: download and verify pinned PoW WASM in local cache; no website credentials required.\n--env-file: load local configuration (existing environment variables take precedence).\nFirst startup downloads WASM if no local file/cache exists; see THIRD_PARTY_NOTICES.md.");
     return;
   }
   if (values.version) { console.log(version); return; }
@@ -38,7 +39,12 @@ async function main(): Promise<void> {
   );
 
   const server = new McpServer({ name: "web-ai-mcp", version });
-  registerDeepSeekTools(server, registry.get("deepseek"), sessions);
+  if (registry.has("deepseek")) {
+    registerDeepSeekTools(server, registry.get("deepseek"), sessions);
+  }
+  if (registry.has("doubao")) {
+    registerDoubaoTools(server, registry.get("doubao"), sessions);
+  }
 
   server.tool(
     "webai_providers",
@@ -49,20 +55,22 @@ async function main(): Promise<void> {
         type: "text" as const,
         text: JSON.stringify({
           active: registry.list(),
-          planned: [{ id: "doubao", status: "not_implemented" }]
+          planned: registry.has("doubao") ? [] : [{ id: "doubao", status: "not_configured", experimental: true }]
         }, null, 2),
       }]
     })
   );
 
   await server.connect(new StdioServerTransport());
-  console.error("[web-ai-mcp] MCP stdio server ready (DeepSeek Web provider)");
+  console.error("[web-ai-mcp] MCP stdio server ready (" + registry.list().map(p => p.id).join(", ") + ")");
 }
 
 main().catch((error: unknown) => {
   // stdout is reserved for MCP JSON-RPC messages.
-  const token = process.env.DEEPSEEK_USER_TOKEN;
-  const message = error instanceof Error ? error.message : String(error);
-  console.error("[web-ai-mcp] failed to start:", token ? message.replaceAll(token, "[REDACTED]") : message);
+  let message = error instanceof Error ? error.message : "Startup failed";
+  for (const secret of [process.env.DEEPSEEK_USER_TOKEN, process.env.DOUBAO_COOKIE, process.env.DOUBAO_CHAT_URL]) {
+    if (secret) message = message.replaceAll(secret, "[REDACTED]");
+  }
+  console.error("[web-ai-mcp] failed to start:", message);
   process.exitCode = 1;
 });
