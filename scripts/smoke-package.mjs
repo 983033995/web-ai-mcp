@@ -22,7 +22,7 @@ try {
     assert.ok(path === "package.json" || path === ".env.example" || path.startsWith("dist/") ||
       path.startsWith("docs/") || ["README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "AGENTS.md"].includes(path), path);
   }
-  for (const path of ["dist/index.js", "dist/core/files.js", "dist/providers/deepseek/wasm.js", "dist/providers/doubao/index.js", "dist/providers/doubao/web-client.js", "dist/providers/doubao/sse.js", "dist/providers/doubao/errors.js", "dist/providers/doubao/upload.js", "dist/providers/doubao/media.js", "dist/tools/doubao.js", "LICENSE", "THIRD_PARTY_NOTICES.md"]) {
+  for (const path of ["dist/index.js", "dist/core/files.js", "dist/core/jobs.js", "dist/tools/common.js", "dist/tools/guidance.js", "dist/providers/deepseek/wasm.js", "dist/providers/doubao/index.js", "dist/providers/doubao/web-client.js", "dist/providers/doubao/sse.js", "dist/providers/doubao/errors.js", "dist/providers/doubao/upload.js", "dist/providers/doubao/media.js", "dist/tools/doubao.js", "LICENSE", "THIRD_PARTY_NOTICES.md"]) {
     assert.ok(paths.includes(path), path);
   }
   const tarball = join(temporary, pack.filename);
@@ -47,6 +47,8 @@ try {
     WEB_AI_SMOKE_CWD: temporary };
   execFileSync(process.execPath, [join(root, "scripts/smoke-mcp.mjs")], { cwd: root, env, stdio: "inherit", timeout: 180_000 });
   execFileSync(process.execPath, [join(root, "scripts/smoke-doubao.mjs")], { cwd: root, env, stdio: "inherit", timeout: 180_000 });
+  execFileSync(process.execPath, [join(root, "scripts/smoke-long-task.mjs")], { cwd: root,
+    env: { ...env, WEB_AI_LONG_SMOKE_DELAY_MS: "75" }, stdio: "inherit", timeout: 180_000 });
   if (process.env.WEB_AI_PACKAGE_TARBALL_DIR) {
     const { mkdirSync, copyFileSync } = await import("node:fs");
     const destination = resolve(process.env.WEB_AI_PACKAGE_TARBALL_DIR);

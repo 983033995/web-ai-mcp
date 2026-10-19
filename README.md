@@ -8,7 +8,7 @@
 
 适用于咨询代码、比较方案、持续讨论项目和生成图片/视频的场景。程序通过 npm/npx 安装，作为本机 **stdio MCP server** 运行。v0.2.0 加入实验性豆包网页版接入；v0.1.2 及更早版本只支持 DeepSeek。豆包已完成本人账号的代表性实测，仍受网站风控、额度和私有接口变化影响。验证边界见[风控记录](docs/DOUBAO_RISK_INVESTIGATION.md)和[生成验证](docs/DOUBAO_MEDIA_VALIDATION.md)。
 
-> **本文对应 v0.2.0，npm 实际可用版本以 registry 为准。** 项目自身代码采用 MIT，通过 GitHub Release / Actions 验证并发布（OIDC，无长期 npm token）。npm 地址用于安装程序，不是远程 MCP 服务地址；使用者无需部署服务器。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。DeepSeek 所需上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
+> **本文对应 v0.3.0，新增长聊天后台任务与首次使用指引，npm 实际版本以 registry 为准。** 项目自身代码采用 MIT，通过 GitHub Release / Actions 验证并发布（OIDC，无长期 npm token）。npm 地址用于安装程序，不是远程 MCP 服务地址；使用者无需部署服务器。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。DeepSeek 所需上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
 
 ## 目录
 
@@ -50,7 +50,7 @@
 先准备一次 PoW WASM（不需要网站 token）：
 
 ```bash
-npx -y web-ai-mcp@0.2.0 --setup
+npx -y web-ai-mcp@0.3.0 --setup
 ```
 
 首次启动也会自动准备；显式执行 `--setup` 可避免客户端下载时间叠加 MCP 启动超时。WASM 从固定上游提交下载到本机缓存并校验 SHA-256，不写入 npm 安装目录，也不随包分发。后续版本更新请明确修改配置中的版本号。
@@ -75,7 +75,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
     "web-ai-mcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "web-ai-mcp@0.2.0"],
+      "args": ["-y", "web-ai-mcp@0.3.0"],
       "env": {
         "DEEPSEEK_USER_TOKEN": "YOUR_OWN_DEEPSEEK_WEB_TOKEN"
       }
@@ -88,7 +88,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
 
 | 配置位置 | 填什么 | 例子 |
 | --- | --- | --- |
-| `command` / `args` | 启动服务的命令、包名和 CLI 选项 | `npx`、`-y`、`web-ai-mcp@0.2.0` |
+| `command` / `args` | 启动服务的命令、包名和 CLI 选项 | `npx`、`-y`、`web-ai-mcp@0.3.0` |
 | `env` | 服务启动时的配置，值都用字符串 | `DEEPSEEK_USER_TOKEN`、`WEB_AI_PROJECT_ROOT` |
 | 每次工具调用的 JSON | 本轮问题、会话选择或文件列表 | `message`、`conversation_name`、`file_paths` |
 
@@ -102,7 +102,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
 
 > 调用 `webai_providers` 查看可用服务，再调用 `deepseek_chat`，询问“请用一句话介绍你能帮我做什么”。
 
-仅配置 DeepSeek 时应发现 6 个工具，仅豆包为 9 个，两者同时配置为 14 个。工具发现说明本地连接成功；收到实际答案才说明当前账号的网站请求成功。
+仅配置 DeepSeek 时应发现 9 个工具，仅豆包为 12 个，两者同时配置为 17 个。工具发现说明本地连接成功；收到实际答案才说明当前账号的网站请求成功。
 
 ## 接入 MCP 客户端
 
@@ -118,7 +118,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
     "web-ai-mcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "web-ai-mcp@0.2.0"],
+      "args": ["-y", "web-ai-mcp@0.3.0"],
       "env": {
         "DEEPSEEK_USER_TOKEN": "YOUR_OWN_DEEPSEEK_WEB_TOKEN",
         "WEB_AI_PROJECT_ROOT": "/absolute/path/to/your-project",
@@ -152,7 +152,7 @@ Claude Code 的项目级文件是 `.mcp.json`；含真实 token 的配置不要�
 ```toml
 [mcp_servers.web-ai-mcp]
 command = "npx"
-args = ["-y", "web-ai-mcp@0.2.0"]
+args = ["-y", "web-ai-mcp@0.3.0"]
 startup_timeout_sec = 60
 tool_timeout_sec = 180
 
@@ -182,7 +182,7 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 ```json
 {
   "args": [
-    "-y", "web-ai-mcp@0.2.0",
+    "-y", "web-ai-mcp@0.3.0",
     "--env-file", "/absolute/path/to/web-ai.env"
   ]
 }
@@ -195,6 +195,37 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 使用相同 npx 启动参数和 `env`；配置文件位置、外层字段及启用方式以客户端文档为准。这是本机 stdio 配置，不是 HTTP MCP 地址。桌面客户端找不到 `npx` 时，把 `command` 换成本机 npx 可执行文件路径；某些 Windows 客户端需要填写 `npx.cmd`。
 
 ## 工具与调用示例
+
+### 首次使用与长时间思考（v0.3.0 起）
+
+先调用 `webai_usage`，了解参数、会话生命周期和错误恢复。服务也通过 MCP 初始化 `instructions` 提供规则，但不同客户端不一定将它传给模型；聊天工具描述会提示读取指南。可复制[使用 Skill](docs/CLIENT_USAGE_SKILL.md)到客户端 skill 目录。
+
+四个聊天/reasoner 工具支持 `background: true`。长问题、专家思考推荐此模式：提交快速返回任务 ID，之后只读查询，不让网页思考占满一次客户端调用。以下以 `deepseek_reasoner` 为例，`request_id` 换成新 UUID：
+
+```json
+{
+  "message": "请检查方案前提与边界风险。",
+  "conversation_name": "architecture-review",
+  "background": true,
+  "request_id": "78a1f8cd-7e19-4dac-8ccf-b951359542c1"
+}
+```
+
+按返回的 `poll_after_seconds`（默认10秒）调用 `webai_job_status`：`{"job_id":"实际返回的任务 ID"}`。查询不会重复发送消息；完成后返回原始答案与 `session_key`。不要把 job_id 当会话 key。同一工具、相同参数与相同 request_id 在当前进程内只执行一次；不能用新 ID 自动重放不确定请求。
+
+| 状态/工具 | 处理方式 |
+| --- | --- |
+| `running` | 按建议间隔查询，不再次提交聊天 |
+| `completed` | 读取原始答案和本地会话 key，再续聊 |
+| `failed` / `cancelled` | 阅读原始错误与 `next_action`，不自动重放网站写入 |
+| `webai_job_cancel` | 显式传 job_id 取消本机等待；不能撤回网站已受理的消息 |
+| 未知/过期 job | 停止重放，检查对应 sessions_list 与官网；本地列表本身不能证明网站是否受理 |
+
+任务与结果只存当前 MCP 进程内存，完成后可查询30分钟，最多保留32个结果；一个进程同时只运行一个后台任务。作业额外截止为12分钟，网站超时仍可提前取消。读取结果前不要断开或重启 MCP；进程退出后不恢复或重试任务，残留 pending 会话继续受失效保护。幂等 ID 的摘要在当前进程保留，最多1024个，达到上限拒绝新提交并要求取完结果后显式重启。
+
+长聊天建议 `DEEPSEEK_TIMEOUT=600000`、`DOUBAO_TIMEOUT=600000`，客户端支持时将工具超时设为大于网站超时，例如660秒。Qoder桌面1.1.69调用桥实测仍有约60秒控制请求限制，单改网站或服务项 `timeout` 不能解除外层上限，应使用后台模式。同步聊天可发送进度通知，但不能保证客户端延长等待。文件分析与媒体生成暂未加入后台选项，异步视频继续用 `doubao_media_status`。
+
+每轮都必须有 message，名称与 ID 只能选一类，布尔值使用 true/false。关闭后的 key 作废；网站会话创建失败、超时、验证码、限流与额度不足不应触发自动重发或换模式。错误附带 `automatic_retry=false` 和恢复步骤。验证与边界见[长任务记录](docs/LONG_TASK_VALIDATION.md)。
 
 以下 JSON 是 **MCP 工具参数**，不是终端命令或 HTTP 请求。可以让 AI 助手调用对应工具，也可以通过 MCP Inspector 手动传入。
 
@@ -239,6 +270,7 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 | `conversation_name` | 可选，去除首尾空白后 1–80 字符；首次创建，之后复用 |
 | `make_default` | 可选，`true` 时在成功获得可续聊结果后设为项目默认；`false` 不清除已有默认 |
 | `system_prompt` | 可选，作为普通文本前缀拼接到本轮消息，**不是独立 system role** |
+| `background` / `request_id` | 长聊天传 `background: true` 和新 UUID，之后查询 job；省略时同步调用 |
 | `thinking` | 仅 `deepseek_chat` 支持，默认 `false`；`deepseek_reasoner` 固定启用 |
 | `show_reasoning` | 默认 `false`；`true` 时附带网站返回的思考文本（如有） |
 
@@ -302,7 +334,7 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 
 ### 豆包图片与视频生成
 
-使用 `web-ai-mcp@0.2.0`，并从本人同一次网页请求配置 `DOUBAO_COOKIE`、`DOUBAO_CHAT_URL` 和 `DOUBAO_USER_AGENT`，获取方法见[豆包接入](#豆包接入配置参数与获取方式)。建议设置 `DOUBAO_TIMEOUT=120000`，客户端工具超时大于此值。v0.1.2 不包含这些能力。
+使用 `web-ai-mcp@0.3.0`，并从本人同一次网页请求配置 `DOUBAO_COOKIE`、`DOUBAO_CHAT_URL` 和 `DOUBAO_USER_AGENT`，获取方法见[豆包接入](#豆包接入配置参数与获取方式)。建议设置 `DOUBAO_TIMEOUT=120000`，客户端工具超时大于此值。v0.1.2 不包含这些能力。
 
 | 工具 | 参数与行为 |
 | --- | --- |
@@ -386,7 +418,7 @@ Cookie 至少应包含 `sessionid`（或 `sessionid_ss`）、`passport_csrf_toke
   "mcpServers": {
     "web-ai": {
       "command": "npx",
-      "args": ["-y", "web-ai-mcp@0.2.0"],
+      "args": ["-y", "web-ai-mcp@0.3.0"],
       "env": {
         "DEEPSEEK_USER_TOKEN": "YOUR_OWN_DEEPSEEK_WEB_TOKEN",
         "DOUBAO_COOKIE": "YOUR_COMPLETE_REQUEST_COOKIE",
@@ -405,7 +437,7 @@ Cookie 至少应包含 `sessionid`（或 `sessionid_ss`）、`passport_csrf_toke
 
 已有 `web-ai` / `web-ai-mcp` 配置时，更新原来的服务项，保留其他 MCP。Qoder 的本机 `~/.qoder/settings.json` 使用 `mcpServers`；WorkBuddy 使用 `~/.workbuddy/mcp.json`。客户端找不到 `npx` 时使用其绝对路径；修改后重新连接该 MCP。`WEB_AI_ALLOWED_ROOTS` 仅文件分析/参考图需要，只聊天可以删掉；其余可选参数见上表。
 
-也可以把网站凭据集中放在本机私有 env 文件中，再使用 `args: ["-y", "web-ai-mcp@0.2.0", "--env-file", "/private/path/web-ai.env"]`。内容示例：
+也可以把网站凭据集中放在本机私有 env 文件中，再使用 `args: ["-y", "web-ai-mcp@0.3.0", "--env-file", "/private/path/web-ai.env"]`。内容示例：
 
 ```dotenv
 DOUBAO_COOKIE="sessionid=...; passport_csrf_token=...; s_v_web_id=..."
@@ -416,7 +448,7 @@ DOUBAO_TIMEOUT=120000
 
 以上都是占位值，必须替换为自己的请求字段。服务不自动查找 `.env`，需要显式 `--env-file`；同名参数以进程已有环境变量为准。文件只保存在本机，macOS/Linux 建议权限 `600`。Cookie、完整请求 URL 和带真实值的配置都不要发到聊天、Issue 或 Git 中。
 
-豆包有 8 个工具：`doubao_chat`、`doubao_reasoner`、`doubao_analyze_files`、`doubao_generate_image`、`doubao_generate_video`、`doubao_media_status`、`doubao_sessions_list`、`doubao_session_close`，加上 `webai_providers` 共 9 个。先通过 `webai_providers` 检查已启用网站，再调用 `doubao_chat` 发送一句测试消息。已有其他 Provider 的项目默认会被忽略，不会串用会话；只有回复携带完整可校验 lineage 时才返回可续聊 key，续聊回复必须推进消息索引。
+豆包有 8 个工具：`doubao_chat`、`doubao_reasoner`、`doubao_analyze_files`、`doubao_generate_image`、`doubao_generate_video`、`doubao_media_status`、`doubao_sessions_list`、`doubao_session_close`，加上 `webai_providers`、`webai_usage`、`webai_job_status`、`webai_job_cancel` 共 12 个。先读 `webai_usage`，再通过 `webai_providers` 检查已启用网站，再调用 `doubao_chat` 发送一句测试消息。已有其他 Provider 的项目默认会被忽略，不会串用会话；只有回复携带完整可校验 lineage 时才返回可续聊 key，续聊回复必须推进消息索引。
 
 登录过期或请求上下文变化时，从本人正常网页请求重新获取这三个值并重连 MCP。若返回 `captcha_required`，先停止调用并按官网实际呈现的验证要求手动处理；不应通过重复测试或更换账号继续发送。原网页不一定自动显示由 HTTP 请求触发的挑战。
 
@@ -479,14 +511,14 @@ npx tsx scripts/probe-doubao.ts --env-file /private/path/.env --live --features
 | --- | --- |
 | `setup:upstream` 下载失败 | 检查 GitHub 访问和本机 Git / 代理配置，恢复网络后重新执行；不要跳过 WASM 导入 |
 | `Missing upstream WASM` / `pow_unavailable` | 在仓库根目录依次执行 `npm run setup:upstream`、`npm run build` |
-| npx 的 WASM 下载或校验失败 | 检查 `raw.githubusercontent.com` 访问，执行 `npx -y web-ai-mcp@0.2.0 --setup`；或指定正确的本机 `WEB_AI_WASM_PATH`。损坏文件保留，不会自动覆盖 |
+| npx 的 WASM 下载或校验失败 | 检查 `raw.githubusercontent.com` 访问，执行 `npx -y web-ai-mcp@0.3.0 --setup`；或指定正确的本机 `WEB_AI_WASM_PATH`。损坏文件保留，不会自动覆盖 |
 | `npx` 返回 npm 404 | 核对包名、版本和 registry；推荐官方 https://registry.npmjs.org，镜像可能有同步延迟 |
 | `Missing DEEPSEEK_USER_TOKEN` | 检查服务配置的 `env.DEEPSEEK_USER_TOKEN`，修改后重启；仅在选择文件方式时检查 `--env-file` |
 | 本地测试通过，真实聊天失败 | 本地测试使用模拟网站，不验证账号权限、登录状态或当前网站兼容性 |
 | `authentication_error` / HTTP 401 / 网站 code 40003 | 在本人账号重新登录，更新本机 token 后重启 MCP；同一账号可以保留原存储 |
 | HTTP 403 / `access_denied` | 在浏览器检查网站访问状态，处理网站要求；不绕过 CAPTCHA 或 WAF |
 | HTTP 429 / `rate_limit_error` | 等待并减少请求，遵守网站限制；不轮换账号规避限流 |
-| `timeout_error` / 客户端超时 | 检查网络；按需增加服务及客户端超时。若会话变为 `uncertain`，先关闭它，不直接重试旧 ID |
+| `timeout_error` / 客户端超时 | 后台任务先查询 job；同步失败核对会话和官网，不重放。确认放弃 uncertain 会话后再显式关闭；长聊天用后台模式 |
 | `Set WEB_AI_ALLOWED_ROOTS` / `File outside allowed root` | 配置必要目录并重启；检查绝对路径、真实路径及 OS 分隔符 |
 | 文件解析失败 / 超时 | 确认网站支持格式，尝试更小且可解析的文件；增大整轮超时不会解除解析阶段的 30 秒限制 |
 | `Session missing or expired` | 核对 ID、项目根与存储路径；已有失效名称或默认绑定需显式关闭，再开新会话 |
@@ -524,6 +556,7 @@ npm run smoke:local
 | `npm run typecheck` | strict 类型检查 |
 | `npm test` | 确定性单元与集成测试 |
 | `npm run smoke:local` | 本地网站 fixture → HTTP / PoW → MCP stdio 验证 |
+| `npm run smoke:long-task` | 65秒本地HTTP回复、每次MCP调用3秒，验证后台等待和一次写入，不访问网站 |
 | `npm run smoke:package` | 检查真实 tarball，在隔离目录安装并以 npm exec 验证完整本地 MCP 流程 |
 
 构建后可使用 MCP Inspector 检查工具发现，合成 token 不用于真实网站请求：
@@ -533,7 +566,7 @@ npx -y @modelcontextprotocol/inspector --cli node dist/index.js \
   -e DEEPSEEK_USER_TOKEN=local-discovery-placeholder --method tools/list
 ```
 
-仅 DeepSeek 为 6 个工具，仅豆包为 9 个，两者同时配置为 14 个。工具发现成功不等于真实聊天成功。
+仅 DeepSeek 为 9 个工具，仅豆包为 12 个，两者同时配置为 17 个。工具发现成功不等于真实聊天成功。
 
 ### 可选：本人账号网站 smoke
 
