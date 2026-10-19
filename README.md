@@ -306,13 +306,37 @@ npm v0.1.2 尚不包含这些豆包工具。使用构建后的源码入口，并
 
 | 工具 | 参数与行为 |
 | --- | --- |
-| `doubao_generate_image` | `prompt` 必填；Seedream 5.0 Flash；`ratio` 可选 `auto` 或 `1:1` |
-| `doubao_generate_video` | `prompt` 必填；Seedance 2.5；`duration_seconds` 为 4–30 的整数，默认 4；`ratio` 可选 `auto`、`1:1`、`3:4`、`4:3`、`9:16`、`16:9`、`21:9` |
+| `doubao_generate_image` | `prompt` 必填；`model` 默认 `Seedream 5.0 Flash`；支持 `ratio`、`style`、`reference_image_paths` |
+| `doubao_generate_video` | `prompt` 必填；`model` 默认 `Seedance 2.0 Fast`；`duration_seconds` 默认 4；`ratio` 可选 `auto`、`1:1`、`3:4`、`4:3`、`9:16`、`16:9`、`21:9` |
 | `doubao_media_status` | `session_key` 必填；只读查询该会话最近 20 条消息中的图片/视频结果，不提交生成任务 |
+
+`model` 使用以下名称，每次调用都可选择；省略时使用默认模型，不继承网站偏好或上一次调用的模型。
+
+| 类型 | 可选模型 | 视频时长 |
+| --- | --- | --- |
+| 图片 | `Seedream 5.0 Flash`（默认）、`Seedream 5.0 Pro`、`Seedream 4.5`、`Seedream 4.0` | — |
+| 视频 | `Seedance 2.0 Fast`（默认）、`Seedance 2.0`、`Seedance 2.0 Mini` | 4–15 秒整数 |
+| 视频 | `Seedance 2.5` | 4–30 秒整数 |
+
+例如调用 `doubao_generate_video`，参数为 `{"prompt":"一个红色球体缓慢升起，固定镜头","model":"Seedance 2.0 Fast","duration_seconds":4}`。使用同一 `session_key` 再次生成时可以换用另一模型。未知模型、跨类型模型及不兼容的时长会报错，不会自动换模型；账号能否使用对应模型及其消耗由网站决定。
+
+图片 `ratio` 可选 `auto`（默认）、`1:1`、`2:3`、`3:2`、`3:4`、`4:3`、`9:16`、`16:9`。`style` 可选水彩画、油画、动漫、3D渲染等网页列出的 32 种风格；完整可选值由工具参数 schema 提供，省略表示不指定风格。
+
+`reference_image_paths` 接受 1–5 个本地 PNG、JPEG 或 WebP 的绝对路径，必须位于 `WEB_AI_ALLOWED_ROOTS` 内；每张不超过 10 MiB、合计不超过 20 MiB。参考图实际上传到本人豆包账号，按图片授权、CRC 和提交确认后引用；不接受任意远程地址或符号链接逃逸路径。例如调用 `doubao_generate_image`：
+
+```json
+{
+  "prompt": "保留参考图主体，生成浅黄色背景的水彩插画",
+  "model": "Seedream 4.0",
+  "ratio": "3:4",
+  "style": "水彩画",
+  "reference_image_paths": ["/absolute/path/to/refs/reference.png"]
+}
+```
 
 两个生成工具默认建立独立会话，不复用项目默认会话；可用 `conversation_name` 创建/继续命名会话，或传 `session_key` 继续已有会话。返回的 `media` 包含媒体类型、状态及成功结果的地址和尺寸，视频还可包含实际时长。地址可能过期，不会自动下载文件。实际模型、额度和输出规格仍由网站决定；生成可能消耗本人账号额度。
 
-视频可能先请求确认参数。此时 `media_status=no_media_returned` 表示**尚未返回媒体**，不证明任务已受理。阅读网站回复后，通过 `doubao_chat` 携带同一 `session_key` 回答；异步结果通过 `doubao_media_status` 获取，支持 MCP 重启后查询。系统不会把文字承诺当成生成成功，不会自动确认、重发或轮询。图片参考输入、改图、图生视频及模型选择尚未开放。
+视频可能先请求确认参数。此时 `media_status=no_media_returned` 表示**尚未返回媒体**，不证明任务已受理。阅读网站回复后，通过 `doubao_chat` 携带同一 `session_key` 回答；异步结果通过 `doubao_media_status` 获取，支持 MCP 重启后查询。系统不会把文字承诺当成生成成功，不会自动确认、重发或轮询。局部蒙版编辑及图生视频尚未开放。
 
 2026-10-19 已验证真实 MCP 图片生成、4 秒视频请求及重启后只读结果查询；网站验收范围见[生成验证记录](docs/DOUBAO_MEDIA_VALIDATION.md)。
 

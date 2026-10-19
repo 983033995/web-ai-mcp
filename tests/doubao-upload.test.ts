@@ -202,3 +202,31 @@ test("Doubao aborts oversized or stalled response reads without retry", async ()
   await assert.rejects(pending, (error: any) => error.code === "cancelled" && error.sessionUncertain === false);
   assert.equal(stalled.calls.length, 1);
 });
+
+test("Doubao image upload requires matching safe image names and confirmed image plugin metadata", async () => {
+  const image = { name: "reference.png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==", "base64") };
+  const valid = { SourceUri: storeUri, ImageUri: "fixture/normalized.png", ImageWidth: 1, ImageHeight: 1, ImageFormat: "png", NotFound: false };
+  const fixture = (plugin?: Record<string, unknown>) => {
+    const f = harness({ storage: () => storageResponse(f.calls.at(-1)!.headers.get("content-crc32")!),
+      commit: () => Response.json({ Result: { Results: [{ Uri: storeUri, UriStatus: 2000 }], PluginResult: plugin ? [plugin] : [] } }) }, "tos-d-x-lf.snssdk.com", officialChatUrl);
+    return f;
+  };
+  const f = fixture(valid);
+  const attachment = await f.uploader.uploadImage(image, new AbortController().signal);
+  assert.equal(attachment.image.uri, "fixture/normalized.png"); assert.equal(attachment.image.image_ori.width, 1);
+  assert.equal(JSON.parse(String(f.calls[0].init.body)).resource_type, 2);
+  assert.equal(f.calls[1].url.searchParams.get("FileExtension"), ".png");
+  assert.equal(f.calls[2].headers.get("cookie"), null);
+  assert.match(f.calls[2].headers.get("content-disposition")!, /filename="upload.png"/);
+  for (const plugin of [undefined, { ...valid, SourceUri: "wrong" }, { ...valid, ImageUri: "../escape.png" },
+    { ...valid, ImageWidth: -1 }, { ...valid, ImageFormat: "svg" }, { ...valid, NotFound: true }]) {
+    const rejected = fixture(plugin);
+    await assert.rejects(rejected.uploader.uploadImage(image, new AbortController().signal), (e: any) => e.code === "upload_commit_error" && !e.sessionUncertain);
+  }
+  const bad = fixture(valid);
+  for (const value of [{ ...image, name: "../reference.png" }, { ...image, name: "image.svg" }, { ...image, name: "image.jpg" },
+    { ...image, buffer: Buffer.from("not a PNG") }, { ...image, buffer: Buffer.alloc(10 * 1024 * 1024 + 1) }]) {
+    await assert.rejects(bad.uploader.uploadImage(value, new AbortController().signal), (e: any) => e.code === "invalid_reference_image");
+  }
+  assert.equal(bad.calls.length, 0);
+});

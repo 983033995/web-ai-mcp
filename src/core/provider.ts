@@ -14,6 +14,9 @@ export interface ProviderCapabilities {
 export interface MediaGenerationRequest {
   kind: "image" | "video";
   prompt: string;
+  model?: string;
+  style?: string;
+  referenceImages?: FileInput[];
   ratio?: string;
   durationSeconds?: number;
   signal?: AbortSignal;

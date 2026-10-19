@@ -17,6 +17,8 @@ const fileLocalIds = new Map();
 const uploadStages = [];
 const messageIndexes = new Map();
 let uploadedFixture;
+let uploadedReference;
+let uploadResourceType = 1;
 const evidence = [];
 const website = createServer(async (request, response) => {
   try {
@@ -24,9 +26,10 @@ const website = createServer(async (request, response) => {
     const chunks = []; for await (const chunk of request) chunks.push(chunk);
     const bytes = Buffer.concat(chunks); const raw = bytes.toString();
     response.setHeader("Content-Type", "application/json");
-    if (url.pathname === "/upload/v1/fixture-object/fixture.txt") {
+    if (["/upload/v1/fixture-object/fixture.txt", "/upload/v1/fixture-object/reference.png"].includes(url.pathname)) {
       assert.equal(request.headers.cookie, undefined); assert.equal(request.headers.authorization, "fixture-storage-auth");
-      assert.equal(raw, uploadedFixture); uploadStages.push("upload");
+      if (uploadResourceType === 2) assert.deepEqual(bytes, uploadedReference); else assert.equal(raw, uploadedFixture);
+      uploadStages.push("upload");
       response.end(JSON.stringify({ code: 2000, data: { crc32: request.headers["content-crc32"] } })); return;
     }
     assert.equal(request.headers.cookie, "sessionid=fixture; passport_csrf_token=fixture; s_v_web_id=fixture");
@@ -44,31 +47,41 @@ const website = createServer(async (request, response) => {
       }] } } })); return;
     }
     if (url.pathname === "/alice/resource/prepare_upload") {
+      uploadResourceType = JSON.parse(raw).resource_type;
+      assert.ok([1, 2].includes(uploadResourceType));
       uploadStages.push("prepare"); response.end(JSON.stringify({ code: 0, data: { service_id: "fixture-service",
         upload_auth_token: { access_key: "fixture-access", secret_key: "fixture-secret", session_token: "fixture-token" } } })); return;
     }
     if (url.pathname === "/top/v1") {
       assert.ok(request.headers.authorization?.startsWith("AWS4-HMAC-SHA256 "));
       const action = url.searchParams.get("Action"); uploadStages.push(action);
-      if (action === "ApplyImageUpload") response.end(JSON.stringify({ Result: { UploadAddress: { StoreInfos: [{ StoreUri: "fixture-object/fixture.txt", Auth: "fixture-storage-auth" }],
+      const uri = uploadResourceType === 2 ? "fixture-object/reference.png" : "fixture-object/fixture.txt";
+      if (action === "ApplyImageUpload") response.end(JSON.stringify({ Result: { UploadAddress: { StoreInfos: [{ StoreUri: uri, Auth: "fixture-storage-auth" }],
         UploadHosts: ["127.0.0.1"], SessionKey: "fixture-upload-session" } } }));
-      else { assert.equal(JSON.parse(raw).SessionKey, "fixture-upload-session"); response.end(JSON.stringify({ Result: { Results: [{ Uri: "fixture-object/fixture.txt", UriStatus: 2000 }] } })); }
+      else { assert.equal(JSON.parse(raw).SessionKey, "fixture-upload-session"); response.end(JSON.stringify({ Result: { Results: [{ Uri: uri, UriStatus: 2000 }],
+        ...(uploadResourceType === 2 ? { PluginResult: [{ SourceUri: uri, ImageUri: uri, ImageWidth: 1, ImageHeight: 1, ImageFormat: "png", NotFound: false }] } : {}) } })); }
       return;
     }
     assert.equal(url.pathname, "/chat/completion");
     const body = JSON.parse(raw);
     requests++;
     const attachment = body.messages[0].content_block.find(block => block.block_type === 10052);
-    const fileConversation = Boolean(attachment || body.client_meta.conversation_id === "fixture-file-conv");
     const generation = body.chat_ability;
+    const fileConversation = Boolean((attachment && !generation) || body.client_meta.conversation_id === "fixture-file-conv");
     const conversation = generation ? generation.ability_type === 3 ? "fixture-image-conv" : "fixture-video-conv"
       : fileConversation ? "fixture-file-conv" : "fixture-conv";
     if (generation) {
       assert.equal(body.option.need_create_conversation, true);
       assert.equal(body.option.agent_mode, undefined);
       const parameters = JSON.parse(generation.ability_param);
-      if (generation.ability_type === 3) assert.equal(parameters.ability_param.model, "Seedream 5.0 Flash");
-      else { assert.equal(generation.ability_type, 17); assert.equal(parameters.model, "seedance_v2.5"); assert.equal(parameters.duration, 4); }
+      if (generation.ability_type === 3) {
+        assert.equal(parameters.ability_param.model, "Seedream 4.0"); assert.equal(parameters.ability_param.style, "skill_image_styles_watercolor");
+        assert.equal(parameters.ability_param.ratio, "3:4"); assert.equal(body.messages.length, 2);
+        assert.equal(attachment.content.attachment_block.attachments[0].type, 1);
+        assert.equal(attachment.content.attachment_block.attachments[0].image.uri, "fixture-object/reference.png");
+        assert.match(body.messages[1].content_block[0].content.text_block.text, /图片风格为水彩画，3:4$/);
+      }
+      else { assert.equal(generation.ability_type, 17); assert.equal(parameters.model, "seedance_v2.0"); assert.equal(parameters.duration, 4); }
     } else if (attachment) {
       assert.equal(body.option.need_create_conversation, true);
       assert.equal(attachment.content.attachment_block.attachments[0].file.uri, "fixture-object/fixture.txt");
@@ -166,7 +179,9 @@ try {
   const fileFollowup = await call("doubao_chat", { message: "file followup", session_key: fileKey });
   assert.equal(fileFollowup.error, false); assert.ok(fileFollowup.text.includes(fileKey));
   evidence.push("bounded TXT upload, commit, file answer and restart follow-up");
-  const image = await call("doubao_generate_image", { prompt: "synthetic image fixture" });
+  uploadedReference = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==", "base64");
+  const referencePath = join(directory, "reference.png"); await writeFile(referencePath, uploadedReference, { mode: 0o600 });
+  const image = await call("doubao_generate_image", { prompt: "synthetic image fixture", model: "Seedream 4.0", ratio: "3:4", style: "水彩画", reference_image_paths: [referencePath] });
   assert.equal(image.error, false); assert.ok(image.text.includes('"media_status": "completed"'));
   assert.ok(image.text.includes("https://p5-flow-imagex-sign.byteimg.com/fixture.png"));
   const video = await call("doubao_generate_video", { prompt: "synthetic video fixture", duration_seconds: 4 });
@@ -175,7 +190,7 @@ try {
   await client.close(); await transport.close(); await connect();
   const media = await call("doubao_media_status", { session_key: videoKey });
   assert.equal(media.error, false); assert.ok(media.text.includes("https://v11-vdl.doubao.com/fixture.mp4"));
-  evidence.push("image creation URL, video acknowledgement and read-only result lookup after process restart");
+  evidence.push("image model, ratio, style and allowed reference upload; default Fast video and read-only result lookup after restart");
   const disk = await readFile(env.WEB_AI_SESSION_STORE_PATH, "utf8");
   assert.ok(!disk.includes("first-canary") && !disk.includes("second-canary") && !disk.includes("sessionid=fixture"));
   assert.ok(!disk.includes("synthetic image fixture") && !disk.includes("fixture.mp4"));

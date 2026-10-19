@@ -8,7 +8,6 @@ const MAX_STORAGE_RESPONSE_BYTES = 64 * 1024;
 const IMAGE_VERSION = "2018-08-01";
 const AWS_REGION = "cn-north-1";
 const AWS_SERVICE = "imagex";
-const PREPARE_BODY = { tenant_id: "5", scene_id: "5", resource_type: 1 } as const;
 
 export interface DoubaoUploaderOptions {
   chatUrl: URL;
@@ -28,6 +27,32 @@ export interface DoubaoAttachment {
   upload_status: 1;
   progress: 100;
   src: "";
+}
+
+export interface DoubaoImageAttachment {
+  type: 1;
+  identifier: string;
+  image: { name: string; uri: string; image_ori: { url: ""; width: number; height: number; format: string; url_formats: Record<string, never> } };
+  parse_state: 0;
+  review_state: 1;
+  upload_status: 1;
+  progress: 100;
+  src: "";
+}
+
+/** Reference images use the same bounded reader and storage transport, with a distinct website grant. */
+export function validateReferenceImage(file: FileInput): void {
+  if (!file || typeof file.name !== "string" || !Buffer.isBuffer(file.buffer) || !file.buffer.length || file.buffer.length > MAX_FILE_BYTES ||
+      Buffer.byteLength(file.name, "utf8") > 255 || !/^[\p{L}\p{N}][\p{L}\p{N}._ -]*\.(png|jpe?g|webp)$/iu.test(file.name) || file.name.includes("..")) {
+    throw new DoubaoWebError("invalid_reference_image", "Select ordinary PNG, JPEG or WebP reference images up to 10 MiB each");
+  }
+  const bytes = file.buffer;
+  const png = bytes.length >= 24 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) && bytes.toString("ascii", 12, 16) === "IHDR";
+  const jpeg = bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  const webp = bytes.length >= 16 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP";
+  if (!(/\.png$/i.test(file.name) ? png : /\.jpe?g$/i.test(file.name) ? jpeg : webp)) {
+    throw new DoubaoWebError("invalid_reference_image", "Reference image format does not match its filename");
+  }
 }
 
 interface UploadToken {
@@ -181,23 +206,38 @@ export class DoubaoUploader {
 
   async upload(file: FileInput, signal: AbortSignal): Promise<DoubaoAttachment> {
     safeFileName(file);
+    const stored = await this.store(file, signal, 1);
+    return {
+      type: 3, identifier: randomUUID(),
+      file: { uri: stored.uri, url: "", file_type: 0, name: file.name, size: file.buffer.length },
+      parse_state: 1, review_state: 1, upload_status: 1, progress: 100, src: ""
+    };
+  }
+
+  async uploadImage(file: FileInput, signal: AbortSignal): Promise<DoubaoImageAttachment> {
+    validateReferenceImage(file);
+    const stored = await this.store(file, signal, 2);
+    const plugins = stored.result.PluginResult;
+    const image = Array.isArray(plugins) ? plugins.find(entry => isRecord(entry) && entry.SourceUri === stored.uri) : undefined;
+    if (!isRecord(image) || !safeStoreUri(image.ImageUri) || !Number.isSafeInteger(image.ImageWidth) || Number(image.ImageWidth) <= 0 ||
+        Number(image.ImageWidth) > 65536 || !Number.isSafeInteger(image.ImageHeight) || Number(image.ImageHeight) <= 0 || Number(image.ImageHeight) > 65536 ||
+        !["png", "jpeg", "jpg", "webp"].includes(String(image.ImageFormat)) || image.NotFound !== false) {
+      throw new DoubaoWebError("upload_commit_error", "Doubao did not confirm reference image metadata");
+    }
+    return { type: 1, identifier: randomUUID(), image: { name: file.name, uri: image.ImageUri, image_ori: {
+      url: "", width: Number(image.ImageWidth), height: Number(image.ImageHeight), format: String(image.ImageFormat), url_formats: {}
+    } }, parse_state: 0, review_state: 1, upload_status: 1, progress: 100, src: "" };
+  }
+
+  private async store(file: FileInput, signal: AbortSignal, resourceType: 1 | 2): Promise<{ uri: string; result: Record<string, unknown> }> {
     if (!signal || typeof signal.throwIfAborted !== "function") throw new DoubaoWebError("invalid_request", "An upload AbortSignal is required");
     try {
       signal.throwIfAborted();
-      const grant = await this.prepare(signal);
+      const grant = await this.prepare(signal, resourceType);
       const allocation = await this.allocate(file, grant.serviceId, grant.token, signal);
       await this.sendBytes(file, allocation, signal);
-      await this.commit(allocation, grant.serviceId, grant.token, signal);
-      return {
-        type: 3,
-        identifier: randomUUID(),
-        file: { uri: allocation.storeUri, url: "", file_type: 0, name: file.name, size: file.buffer.length },
-        parse_state: 1,
-        review_state: 1,
-        upload_status: 1,
-        progress: 100,
-        src: ""
-      };
+      const result = await this.commit(allocation, grant.serviceId, grant.token, signal);
+      return { uri: allocation.storeUri, result };
     } catch (error) {
       if (signal.aborted) throw new DoubaoWebError("cancelled", "Doubao file upload cancelled", false);
       if (error instanceof DoubaoWebError) throw error;
@@ -205,7 +245,7 @@ export class DoubaoUploader {
     }
   }
 
-  private async prepare(signal: AbortSignal): Promise<{ serviceId: string; token: UploadToken }> {
+  private async prepare(signal: AbortSignal, resourceType: 1 | 2): Promise<{ serviceId: string; token: UploadToken }> {
     const url = new URL(this.url);
     url.pathname = "/alice/resource/prepare_upload";
     const value = await this.requestJson(url, {
@@ -219,7 +259,7 @@ export class DoubaoUploader {
         Referer: this.referer,
         "Agw-Js-Conv": "str"
       },
-      body: JSON.stringify(PREPARE_BODY)
+      body: JSON.stringify({ tenant_id: "5", scene_id: "5", resource_type: resourceType })
     }, signal, MAX_JSON_BYTES);
     if (!isRecord(value) || !isRecord(value.data) || !fieldString(value.data.service_id, 256) || !isRecord(value.data.upload_auth_token)) {
       throw new DoubaoWebError("invalid_response", "Doubao did not return valid upload authorization", false);
@@ -240,7 +280,7 @@ export class DoubaoUploader {
     url.searchParams.set("ServiceId", serviceId);
     url.searchParams.set("NeedFallback", "true");
     url.searchParams.set("FileSize", String(file.buffer.length));
-    url.searchParams.set("FileExtension", ".txt");
+    url.searchParams.set("FileExtension", file.name.slice(file.name.lastIndexOf(".")).toLowerCase());
     url.searchParams.set("s", this.nonce());
     const value = await this.requestJson(url, {
       method: "GET",
@@ -284,7 +324,7 @@ export class DoubaoUploader {
         Authorization: allocation.auth,
         "Content-Type": "application/octet-stream",
         "Content-CRC32": expectedCrc,
-        "Content-Disposition": `attachment; filename="upload.txt"; filename*=UTF-8''${awsEncode(file.name)}`,
+        "Content-Disposition": `attachment; filename="upload${file.name.slice(file.name.lastIndexOf(".")).toLowerCase()}"; filename*=UTF-8''${awsEncode(file.name)}`,
         Origin: this.url.origin,
         Referer: this.referer,
         "User-Agent": this.userAgent
@@ -305,7 +345,7 @@ export class DoubaoUploader {
     }
   }
 
-  private async commit(allocation: UploadAllocation, serviceId: string, token: UploadToken, signal: AbortSignal): Promise<void> {
+  private async commit(allocation: UploadAllocation, serviceId: string, token: UploadToken, signal: AbortSignal): Promise<Record<string, unknown>> {
     const url = new URL("/top/v1", this.url.origin);
     url.searchParams.set("Action", "CommitImageUpload");
     url.searchParams.set("Version", IMAGE_VERSION);
@@ -329,6 +369,7 @@ export class DoubaoUploader {
     const committed = results?.some((entry) => isRecord(entry) && entry.Uri === allocation.storeUri &&
       (entry.UriStatus === 2000 || entry.UriStatus === "2000"));
     if (!committed) throw new DoubaoWebError("upload_commit_error", "Doubao did not confirm the uploaded file", false);
+    return result!;
   }
 
   private async requestJson(url: URL, init: RequestInit, signal: AbortSignal, maxBytes: number): Promise<unknown> {

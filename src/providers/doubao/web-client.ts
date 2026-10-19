@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { ChatRequest, FileInput, MediaGenerationRequest, ProviderResult, RemoteSession } from "../../core/provider.js";
 import { DoubaoWebError, businessError, captchaError, httpError } from "./errors.js";
 import { parseSSE, type DoubaoWebReply } from "./sse.js";
-import { DoubaoUploader, type DoubaoAttachment } from "./upload.js";
+import { DoubaoUploader, validateReferenceImage, type DoubaoAttachment, type DoubaoImageAttachment } from "./upload.js";
 import { creationAbility, creationMedia } from "./media.js";
 
 export interface DoubaoClientOptions {
@@ -68,8 +68,13 @@ export class DoubaoWebClient {
 
   async generateMedia(request: MediaGenerationRequest, previous?: RemoteSession): Promise<DoubaoWebReply> {
     const ability = creationAbility(request);
-    const message = request.kind === "image" ? `生成图片：${request.prompt}` : `生成视频：${request.prompt}，${request.durationSeconds ?? 4}s`;
-    return this.send({ message, thinking: false, signal: request.signal }, previous, [], ability);
+    for (const image of request.referenceImages ?? []) validateReferenceImage(image);
+    // The website carries selected controls in both ability parameters and the visible instruction.
+    const controls = [request.style ? `图片风格为${request.style}` : undefined,
+      request.ratio && request.ratio !== "auto" ? request.ratio : undefined,
+      request.kind === "video" ? `${request.durationSeconds ?? 4}s` : undefined].filter(Boolean);
+    const message = `${request.kind === "image" ? "生成图片" : "生成视频"}：${request.prompt}${controls.length ? `，${controls.join("，")}` : ""}`;
+    return this.send({ message, thinking: false, signal: request.signal }, previous, [], ability, request.referenceImages);
   }
 
   /** Read the same website history endpoint used by a page reload; never submits a generation. */
@@ -142,7 +147,7 @@ export class DoubaoWebClient {
     return this.send({ message: instruction, thinking, signal }, undefined, files);
   }
 
-  private async send(request: ChatRequest, previous?: RemoteSession, files: FileInput[] = [], ability?: ReturnType<typeof creationAbility>): Promise<DoubaoWebReply> {
+  private async send(request: ChatRequest, previous?: RemoteSession, files: FileInput[] = [], ability?: ReturnType<typeof creationAbility>, referenceImages: FileInput[] = []): Promise<DoubaoWebReply> {
     if (this.verificationBlocked) throw captchaError();
     if (!request.message.trim()) throw new DoubaoWebError("invalid_request", "Message must not be empty");
     if (previous) validateSession(previous);
@@ -155,8 +160,11 @@ export class DoubaoWebClient {
     let sent = false;
     try {
       controller.signal.throwIfAborted();
-      const attachments: DoubaoAttachment[] = [];
+      const attachments: Array<DoubaoAttachment | DoubaoImageAttachment> = [];
       for (const file of files) attachments.push(await this.uploader.upload(file, controller.signal));
+      for (const file of referenceImages) attachments.push(await this.uploader.uploadImage(file, controller.signal));
+      const attachmentBlocks = attachments.length ? [{ block_type: 10052, block_id: randomUUID(), parent_id: "", meta_info: [], append_fields: [], extra_info: {},
+        content: { attachment_block: { attachments }, pc_event_block: "" } }] : [];
       const localConversationId = previous ? previous.localConversationId as string : `local_${randomBytes(8).toString("hex")}`;
       const deepThink = request.thinking ? 3 : 0;
       const body = {
@@ -166,9 +174,9 @@ export class DoubaoWebClient {
           last_message_index: previous?.lastMessageIndex ?? null, last_section_id: previous?.sectionId ?? "",
           local_conversation_id: localConversationId
         },
-        messages: [{ local_message_id: randomUUID(), message_status: 0, content_block: [
-          ...(attachments.length ? [{ block_type: 10052, block_id: randomUUID(), parent_id: "", meta_info: [], append_fields: [], extra_info: {},
-            content: { attachment_block: { attachments }, pc_event_block: "" } }] : []), {
+        messages: [...(referenceImages.length ? [{ local_message_id: randomUUID(), message_status: 0, content_block: attachmentBlocks }] : []),
+          { local_message_id: randomUUID(), message_status: 0, content_block: [
+          ...(!referenceImages.length ? attachmentBlocks : []), {
           block_type: 10000, block_id: randomUUID(), parent_id: "", meta_info: [], append_fields: [], extra_info: {},
           content: { pc_event_block: "", text_block: { text: request.systemPrompt ? `${request.systemPrompt}\n\n${request.message}` : request.message,
             icon_url: "", icon_url_dark: "", summary: "" } }
