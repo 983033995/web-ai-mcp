@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { ProviderError, type ChatRequest, type GeneratedMedia, type MediaGenerationRequest, type RemoteSession } from "../../core/provider.js";
-import { authenticationError, captchaError, configurationError, GeminiMediaRecoveryError, GeminiWebError, httpError } from "./errors.js";
+import { authenticationError, captchaError, configurationError, GeminiMediaQuotaError, GeminiMediaRecoveryError, GeminiWebError, httpError } from "./errors.js";
 import { GeminiQuotaError, type GeminiMediaKind } from "./cooldown.js";
 import { findGeminiMediaTurn, parseGeminiHistory } from "./history.js";
 import { applyGeminiMediaControls, pendingGeminiMedia, validateGeminiMediaRatio, verifiedGeminiMediaURL } from "./media.js";
@@ -298,7 +298,7 @@ export class GeminiWebClient {
       const current = await this.loadContext(context);
       const response = await this.readHistory(conversationId, context, current);
       const raw = await readText(response, context.signal, 2 * 1024 * 1024, "media recovery");
-      const selection = await findGeminiMediaTurn(new Response(raw).body!, context.signal, kind);
+      const selection = await this.mediaQuotaContext(context, current, () => findGeminiMediaTurn(new Response(raw).body!, context.signal, kind));
       const lineage = { conversationId, ...selection, mediaKind: kind };
       const status = await parseGeminiHistory(new Response(raw).body!, context.signal, lineage);
       return { ...lineage, accountHash: current.accountHash, content: status.content,
@@ -352,11 +352,11 @@ export class GeminiWebClient {
       let body = response.body!;
       if (!candidateId) {
         const raw = await readText(response, context.signal, 2 * 1024 * 1024, "media recovery");
-        const selected = await findGeminiMediaTurn(new Response(raw).body!, context.signal, previous.mediaKind!, previous.replyId);
+        const selected = await this.mediaQuotaContext(context, current, () => findGeminiMediaTurn(new Response(raw).body!, context.signal, previous.mediaKind!, previous.replyId));
         candidateId = selected.candidateId;
         body = new Response(raw).body!;
       }
-      const status = await parseGeminiHistory(body, context.signal, { ...previous, candidateId });
+      const status = await this.mediaQuotaContext(context, current, () => parseGeminiHistory(body, context.signal, { ...previous, candidateId }));
       const media = await this.confirmMedia(status.media, context.signal);
       return { content: status.content, media, conversationId: previous.conversationId, replyId: previous.replyId,
         candidateId, accountHash: current.accountHash, mediaKind: previous.mediaKind };
@@ -385,6 +385,15 @@ export class GeminiWebClient {
       throw new GeminiWebError("invalid_response", "Gemini history returned an unsupported response type");
     }
     return response;
+  }
+
+  private async mediaQuotaContext<T>(context: RequestContext, current: GeminiContext, operation: () => Promise<T>): Promise<T> {
+    try { return await operation(); }
+    catch (error) {
+      if (!(error instanceof GeminiMediaQuotaError)) throw error;
+      const reset = await this.readQuotaReset(context, current);
+      throw new GeminiMediaQuotaError(error.kind, reset);
+    }
   }
 
   /** Authenticated media fetch, restricted to Gemini's verified contribution origin and download path. */
@@ -500,9 +509,10 @@ export class GeminiWebClient {
           const response = await this.readHistory(error.lineage.conversationId, context, current);
           const raw = await readText(response, context.signal, 2 * 1024 * 1024, "media recovery", true);
           const selection = error.lineage.candidateId ? { replyId: error.lineage.replyId, candidateId: error.lineage.candidateId }
-            : await findGeminiMediaTurn(new Response(raw).body!, context.signal, quotaKind, error.lineage.replyId);
-          confirmedLineage = { conversationId: error.lineage.conversationId, ...selection };
-          status = await parseGeminiHistory(new Response(raw).body!, context.signal, { ...confirmedLineage, mediaKind: quotaKind });
+            : await this.mediaQuotaContext(context, current, () => findGeminiMediaTurn(new Response(raw).body!, context.signal, quotaKind, error.lineage.replyId));
+          const selectedLineage = { conversationId: error.lineage.conversationId, ...selection };
+          confirmedLineage = selectedLineage;
+          status = await this.mediaQuotaContext(context, current, () => parseGeminiHistory(new Response(raw).body!, context.signal, { ...selectedLineage, mediaKind: quotaKind }));
         } catch (readError) {
           if (readError instanceof ProviderError && readError.code === "history_not_found") {
             // Keep only the observed c/r and a read-only handle while the asynchronous
@@ -511,6 +521,7 @@ export class GeminiWebClient {
             status = { content: "The video request returned conversation/reply identifiers; media is awaiting read-only confirmation.",
               media: [pendingGeminiMedia(quotaKind, error.lineage)], completionStatus: 1 };
           } else {
+            if (readError instanceof GeminiMediaQuotaError) throw readError;
             if (readError instanceof ProviderError) throw new GeminiWebError(readError.code, readError.message, true);
             throw error;
           }

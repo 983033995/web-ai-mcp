@@ -2,6 +2,8 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { extractGeminiCandidateMedia, geminiMediaURL } from "../src/providers/gemini/media.js";
 import { findGeminiMediaTurn, parseGeminiHistory } from "../src/providers/gemini/history.js";
+import { GeminiMediaQuotaError } from "../src/providers/gemini/errors.js";
+import { GeminiQuotaError } from "../src/providers/gemini/cooldown.js";
 
 const lineage = { conversationId: "c_media", replyId: "r_media", candidateId: "rc_media" };
 const imagePreview = "https://lh3.googleusercontent.com/gg/generated-image?alr=1";
@@ -166,4 +168,16 @@ test("a completed website failure without media is terminal, never pending or a 
   candidate[8] = [2]; candidate[1] = ["A normal clarification response."];
   const clarification = await parseGeminiHistory(historyResponse(candidate).body!, new AbortController().signal, { ...lineage, mediaKind: "video" });
   assert.deepEqual(clarification.media, []);
+});
+
+test("a completed video quota card is terminal and never the pre-acceptance failover signal", async () => {
+  const c = videoCandidate(2);
+  c[1] = ["I can create more videos as soon as your limit resets. Check your usage in Settings."];
+  (c[12] as any[])[59] = [[[null, ["private website diagnostic"], null, 6]]];
+  const check = (e: any) => e instanceof GeminiMediaQuotaError && e.kind === "video" && !(e instanceof GeminiQuotaError) && !e.message.includes("private");
+  await assert.rejects(parseGeminiHistory(historyResponse(c).body!, new AbortController().signal, { ...lineage, mediaKind: "video" }), check);
+  await assert.rejects(findGeminiMediaTurn(historyResponse(c).body!, new AbortController().signal, "video"), check);
+  c[8] = [1];
+  const pending = await parseGeminiHistory(historyResponse(c).body!, new AbortController().signal, { ...lineage, mediaKind: "video" });
+  assert.equal(pending.media[0].status, "pending");
 });

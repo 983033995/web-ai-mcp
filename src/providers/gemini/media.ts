@@ -55,6 +55,11 @@ export function isGeminiMediaFailure(candidate: unknown, extracted: GeminiCandid
   ].includes(text.trim());
 }
 
+export function isGeminiMediaQuota(candidate: unknown, extracted: GeminiCandidateMedia, kind: "image" | "video"): boolean {
+  return kind === "video" && extracted.completionStatus === 2 && extracted.media.length === 0 &&
+    nested(candidate, [1, 0]) === "I can create more videos as soon as your limit resets. Check your usage in Settings.";
+}
+
 function nested(value: unknown, path: readonly number[]): unknown {
   let current = value;
   for (const index of path) {

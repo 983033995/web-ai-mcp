@@ -5,6 +5,7 @@ import { dirname, isAbsolute } from "node:path";
 import { ProviderError, type ChatRequest, type MediaGenerationRequest, type ProviderResult, type RemoteSession, type WebAIProvider } from "../../core/provider.js";
 import type { GeminiAccountConfig } from "./accounts.js";
 import type { GeminiModelCatalog } from "./selection.js";
+import { GeminiMediaQuotaError } from "./errors.js";
 
 export type GeminiMediaKind = "image" | "video";
 
@@ -278,6 +279,10 @@ export class GeminiAccountProvider implements WebAIProvider {
       try {
         return this.bindSession(await provider.generateMedia(request, previous), account);
       } catch (error) {
+        if (error instanceof GeminiMediaQuotaError) {
+          await this.cooldowns.recordQuota(account.id, error.kind, error.resetAtMs, account.cooldownMinutes?.[error.kind]);
+          throw error;
+        }
         if (!(error instanceof GeminiQuotaError) || error.kind !== request.kind || error.sessionUncertain) throw error;
         await this.cooldowns.recordQuota(account.id, request.kind, error.resetAtMs, account.cooldownMinutes?.[request.kind]);
         if (pinned) throw error;
@@ -291,7 +296,11 @@ export class GeminiAccountProvider implements WebAIProvider {
     const account = this.accountFor(previous);
     const provider = this.getProvider(account);
     if (!provider.getMedia) throw new ProviderError("Gemini media status is unavailable", "unsupported_capability");
-    return this.bindSession(await provider.getMedia(previous, signal), account);
+    try { return this.bindSession(await provider.getMedia(previous, signal), account); }
+    catch (error) {
+      if (error instanceof GeminiMediaQuotaError) await this.cooldowns.recordQuota(account.id, error.kind, error.resetAtMs, account.cooldownMinutes?.[error.kind]);
+      throw error;
+    }
   }
 
   async recoverMedia(conversationId: string, kind: GeminiMediaKind, accountId?: string, signal?: AbortSignal): Promise<ProviderResult> {
@@ -300,7 +309,11 @@ export class GeminiAccountProvider implements WebAIProvider {
       recoverMedia?: (conversationId: string, kind: GeminiMediaKind, accountId?: string, signal?: AbortSignal) => Promise<ProviderResult>;
     };
     if (!provider.recoverMedia) throw new ProviderError("Media recovery unavailable", "unsupported_capability");
-    return this.bindSession(await provider.recoverMedia(conversationId, kind, undefined, signal), account);
+    try { return this.bindSession(await provider.recoverMedia(conversationId, kind, undefined, signal), account); }
+    catch (error) {
+      if (error instanceof GeminiMediaQuotaError) await this.cooldowns.recordQuota(account.id, error.kind, error.resetAtMs, account.cooldownMinutes?.[error.kind]);
+      throw error;
+    }
   }
 
   async fetchMediaForSession(previous: RemoteSession, url: string, init?: RequestInit): Promise<Response> {

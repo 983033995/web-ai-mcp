@@ -41,6 +41,7 @@ const providerMessages: Readonly<Record<string, string>> = {
   download_error: "Gemini media could not be downloaded. Retry only the download; do not generate again.",
   media_not_ready: "The selected generated media is not ready; query gemini_media_status without resubmitting generation.",
   media_generation_failed: "Gemini marked this media reply complete with a website failure notice and no media. Stop polling this reply; the cause is not confirmed. No automatic replay or account switch was performed.",
+  media_quota_exhausted: "Gemini explicitly ended this video reply because its account has no video quota. The bound account cooldown was recorded. Stop polling this reply; it was not replayed on another account.",
   history_not_found: "Gemini has not published this media turn in history yet. Query gemini_media_status later; do not resubmit generation.",
 };
 const sessionMessages = new Set([

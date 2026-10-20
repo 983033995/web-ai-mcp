@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -7,7 +8,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { GeminiWebClient } from "../src/providers/gemini/web-client.js";
 import { GeminiWebProvider } from "../src/providers/gemini/index.js";
-import { GeminiMediaRecoveryError } from "../src/providers/gemini/errors.js";
+import { GeminiMediaQuotaError, GeminiMediaRecoveryError } from "../src/providers/gemini/errors.js";
 import { parseGeminiStream } from "../src/providers/gemini/stream.js";
 import { SessionStore } from "../src/core/session-store.js";
 import { registerGeminiTools } from "../src/tools/gemini.js";
@@ -110,6 +111,29 @@ test("a recovery lookup failure remains uncertain and does not authorize account
   await assert.rejects(f.client.generateMedia({ kind: "video", prompt: "A drifting leaf." }),
     (e: any) => e.code === "rate_limit_error" && e.sessionUncertain);
   assert.deepEqual(f.counts(), { writes: 1, reads: 1 });
+});
+
+test("a quota notice in existing history reads the reset once, never submitting generation", async () => {
+  const futureSeconds = Math.floor(Date.now() / 1000) + 300;
+  let historyReads = 0, quotaReads = 0, writes = 0;
+  const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent: "fixture-browser", fetch: async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/app") return new Response(html);
+    if (url.pathname.endsWith("StreamGenerate")) { writes++; throw new Error("must not generate"); }
+    let rpc: string, record: unknown;
+    if (url.searchParams.get("rpcids") === "hNvQHb") {
+      historyReads++;
+      const c = candidate(2); c[1] = ["I can create more videos as soon as your limit resets. Check your usage in Settings."];
+      c[12] = [{ "60": [[[null, ["opaque diagnostic"], null, 6]]] }];
+      const turn: any[] = []; turn[0] = [null, lineage.replyId]; turn[3] = [[c]];
+      rpc = "hNvQHb"; record = [[turn]];
+    } else { quotaReads++; rpc = "aPya6c"; record = [true, 1, [futureSeconds]]; }
+    const frame = JSON.stringify([["wrb.fr", rpc, JSON.stringify(record), null, null, null]]);
+    return new Response(`)]}'\n${frame.length + 2}\n${frame}\ndi\n`, { headers: { "content-type": "application/json" } });
+  } });
+  await assert.rejects(client.getMedia({ ...lineage, accountHash: createHash("sha256").update("fixture@example.test").digest("hex"), mediaKind: "video" }),
+    (e: any) => e instanceof GeminiMediaQuotaError && e.resetAtMs === futureSeconds * 1000);
+  assert.deepEqual({ historyReads, quotaReads, writes }, { historyReads: 1, quotaReads: 1, writes: 0 });
 });
 
 test("owner URL recovery uses one history lookup, validates scope and preserves media-only state through status", async t => {
