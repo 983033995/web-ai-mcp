@@ -4,6 +4,7 @@
 Build a safe, maintainable MCP server exposing **your own web AI conversations**. Source includes DeepSeek Web and the explicitly requested experimental Doubao and Gemini HTTP providers; earlier npm v0.1.2 supports DeepSeek only. Do **not** implement CLIProxyAPI, OpenAI proxy endpoints, or official DeepSeek API access.
 
 ## Coding principles
+- Never delegate Gemini Web protocol/authentication/quota research to Gemini-backed agents or research tools. The user explicitly prohibited this on 2026-10-20 after reporting an account suspension; see src/providers/gemini/AGENTS.md. Account configuration alone does not authorize live chat/generation tests.
 - Keep changes minimal and incremental; validate each vertical slice before expanding.
 - Provider-specific authentication, web endpoints, SSE parsing, cookies and session lineage remain inside src/providers/<id>/.
 - Keep the shared MCP router/registry, session storage and tool definitions independent of DeepSeek-specific types.
