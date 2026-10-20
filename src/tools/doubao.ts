@@ -259,13 +259,14 @@ export function registerDoubaoTools(
     }, ({ prompt, model, ratio, style, reference_image_paths, session_key, conversation_name }, extra) =>
       generate({ kind: "image", prompt, model, ratio, style, signal: extra.signal }, session_key, conversation_name, reference_image_paths));
     server.registerTool("doubao_generate_video", {
-      description: "Request a Doubao website video. Default model Seedance 2.0 Fast. Seedance 2.5 allows 4–30 seconds; other supported models allow 4–15 seconds. Creates a separate conversation by default. The website may ask for confirmation; use doubao_chat with the returned key. Query doubao_media_status for asynchronous results. Model access/quota are controlled by the website; no fallback. Text acknowledgement is not completion.",
+      description: "Request a Doubao website video. Default model Seedance 2.0 Fast. Seedance 2.5 allows 4–30 seconds; other supported models allow 4–15 seconds. Optional reference_image_paths uploads up to five PNG/JPEG/WebP files from WEB_AI_ALLOWED_ROOTS through the same verified image uploader (10 MiB each, 20 MiB total). Creates a separate conversation by default. The website may ask for confirmation; use doubao_chat with the returned key. Query doubao_media_status for asynchronous results. Model access/quota are controlled by the website; no fallback. Text acknowledgement is not completion.",
       inputSchema: z.object({ prompt: z.string().trim().min(1).max(10000),
         model: z.enum(DOUBAO_VIDEO_MODELS).default(DOUBAO_VIDEO_MODELS[0]),
         ratio: z.enum(DOUBAO_VIDEO_RATIOS).default("auto"),
-        duration_seconds: z.number().int().min(4).max(30).default(4), ...selectors }).strict(),
-    }, ({ prompt, model, ratio, duration_seconds, session_key, conversation_name }, extra) =>
-      generate({ kind: "video", prompt, model, ratio, durationSeconds: duration_seconds, signal: extra.signal }, session_key, conversation_name));
+        duration_seconds: z.number().int().min(4).max(30).default(4),
+        reference_image_paths: z.array(z.string().min(1)).min(1).max(5).optional(), ...selectors }).strict(),
+    }, ({ prompt, model, ratio, duration_seconds, reference_image_paths, session_key, conversation_name }, extra) =>
+      generate({ kind: "video", prompt, model, ratio, durationSeconds: duration_seconds, signal: extra.signal }, session_key, conversation_name, reference_image_paths));
   }
 
   if (provider.getMedia) server.registerTool("doubao_media_status", {

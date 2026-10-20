@@ -64,11 +64,11 @@ test("Doubao image ratios and website style mapping are independent of model sel
     assert.equal(value.ratio, ratio); assert.equal(value.style, "skill_image_styles_watercolor");
   }
   for (const bad of [{ kind: "video", prompt: "x", style: "水彩画" }, { kind: "image", prompt: "x", style: "unknown" },
-    { kind: "video", prompt: "x", referenceImages: [referenceImage] }, { kind: "image", prompt: "x", referenceImages: [] },
+    { kind: "video", prompt: "x", referenceImages: [] }, { kind: "image", prompt: "x", referenceImages: [] },
     { kind: "image", prompt: "x", referenceImages: Array(6).fill(referenceImage) }]) assert.throws(() => creationAbility(bad as MediaGenerationRequest));
 });
 
-test("Doubao reference image upload uses image grant and separate attachment message with requested generation parameters", async () => {
+for (const kind of ["image", "video"] as const) test(`Doubao ${kind} reference upload uses image grant and separate attachment message with requested generation parameters`, async () => {
   const paths: string[] = [];
   const client = new DoubaoWebClient(cookie, { chatUrl, userAgent: "fixture", fetch: async (url, init) => {
     const address = new URL(String(url)); paths.push(address.pathname);
@@ -94,12 +94,19 @@ test("Doubao reference image upload uses image grant and separate attachment mes
     assert.equal(attachment.type, 1); assert.equal(attachment.image.uri, "fixture/ref.png"); assert.equal(attachment.parse_state, 0);
     assert.equal(attachment.image.image_ori.width, 1);
     assert.equal(body.messages[1].content_block[0].block_type, 10000);
-    assert.match(body.messages[1].content_block[0].content.text_block.text, /图片风格为水彩画，3:4$/);
-    const params = JSON.parse(body.chat_ability.ability_param).ability_param;
-    assert.equal(params.model, "Seedream 4.0"); assert.equal(params.style, "skill_image_styles_watercolor"); assert.equal(params.ratio, "3:4");
-    return new Response(ack + text + chunk(card([image()])) + end, { headers: { "content-type": "text/event-stream" } });
+    const params = kind === "image" ? JSON.parse(body.chat_ability.ability_param).ability_param : JSON.parse(body.chat_ability.ability_param);
+    if (kind === "image") {
+      assert.match(body.messages[1].content_block[0].content.text_block.text, /图片风格为水彩画，3:4$/);
+      assert.equal(params.model, "Seedream 4.0"); assert.equal(params.style, "skill_image_styles_watercolor"); assert.equal(params.ratio, "3:4");
+    } else {
+      assert.equal(params.model, "seedance_v2.5"); assert.equal(params.ratio, "9:16"); assert.equal(params.duration, 15);
+      assert.match(body.messages[1].content_block[0].content.text_block.text, /9:16.*15s$/);
+    }
+    return new Response(ack + text + chunk(card([kind === "image" ? image() : video()])) + end, { headers: { "content-type": "text/event-stream" } });
   } });
-  assert.equal((await client.generateMedia({ kind: "image", prompt: "fixture", model: "Seedream 4.0", ratio: "3:4", style: "水彩画", referenceImages: [referenceImage] })).media?.[0].status, "completed");
+  const request: MediaGenerationRequest = kind === "image" ? { kind, prompt: "fixture", model: "Seedream 4.0", ratio: "3:4", style: "水彩画" }
+    : { kind, prompt: "fixture", model: "Seedance 2.5", ratio: "9:16", durationSeconds: 15 };
+  assert.equal((await client.generateMedia({ ...request, referenceImages: [referenceImage] })).media?.[0].status, "completed");
   assert.deepEqual(paths, ["/alice/resource/prepare_upload", "/top/v1", "/upload/v1/fixture/ref.png", "/top/v1", "/chat/completion"]);
 });
 
@@ -273,8 +280,18 @@ test("Doubao MCP media tools isolate project defaults, preserve restart lookup, 
   assert.equal((await second.call("doubao_generate_image", { prompt: "reference fixture", model: "Seedream 4.0", ratio: "3:4", style: "水彩画", reference_image_paths: [imagePath] })).error, false);
   assert.equal(generations[3].request.style, "水彩画"); assert.equal(generations[3].request.ratio, "3:4");
   assert.deepEqual(generations[3].request.referenceImages?.[0].buffer, referenceImage.buffer);
+  assert.equal((await second.call("doubao_generate_video", { prompt: "video references", model: "Seedance 2.5", ratio: "9:16", duration_seconds: 15,
+    reference_image_paths: Array(5).fill(imagePath) })).error, false);
+  assert.equal(generations[4].request.referenceImages?.length, 5);
+  assert.equal(generations[4].request.durationSeconds, 15);
+  assert.deepEqual(generations[4].request.referenceImages?.[4].buffer, referenceImage.buffer);
+  const beforeBadReferences = generations.length;
+  for (const paths of [[join(directory, "escape.png")], Array(6).fill(imagePath)]) {
+    assert.equal((await second.call("doubao_generate_video", { prompt: "invalid references", reference_image_paths: paths })).error, true);
+  }
+  assert.equal(generations.length, beforeBadReferences);
   const foreign = restarted.put({ providerId: "deepseek", remote: {}, title: "foreign" });
   for (const session_key of ["00000000-0000-4000-8000-000000000000", foreign.key]) assert.equal((await second.call("doubao_media_status", { session_key })).error, true);
-  assert.equal(reads, 2); assert.equal(generations.length, 4);
+  assert.equal(reads, 2); assert.equal(generations.length, 5);
   const disk = readFileSync(path, "utf8"); for (const secret of ["synthetic-prompt-canary", videoURL, "SECRET_CANARY"]) assert.ok(!disk.includes(secret));
 });
