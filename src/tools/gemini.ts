@@ -273,6 +273,24 @@ export function registerGeminiTools(
     }
   }
   if (provider.getMedia) {
+    const recovery = provider as WebAIProvider & {
+      recoverMedia?: (conversationId: string, kind: "image" | "video", accountId?: string, signal?: AbortSignal) => Promise<ProviderResult>;
+    };
+    if (recovery.recoverMedia) server.registerTool("gemini_recover_media", {
+      description: "Recover EXISTING generated media from an owner-provided Gemini conversation URL when the original key was lost or closed. Reads history only; never generates/retries or re-enables a blocked conversation. Returns a media-only session_key that rejects chat/generation. account_id selects the original configured account, defaults to the first; never searches or switches accounts on failure.",
+      inputSchema: z.object({ conversation_url: z.string().regex(/^https:\/\/gemini\.google\.com\/app\/[a-f0-9]{16}$/),
+        kind: z.enum(["image", "video"]), account_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional() }).strict(),
+      annotations: { readOnlyHint: true },
+    }, async ({ conversation_url, kind, account_id }, extra) => {
+      try {
+        return await sessions.exclusive("gemini-media-recovery", async () => {
+          const result = await recovery.recoverMedia!("c_" + conversation_url.split("/").at(-1), kind, account_id, extra.signal);
+          if (!result.remoteSession) throw new ProviderError("Missing recovery lineage", "invalid_response");
+          const record = sessions.put({ providerId: provider.id, title: "Recovered website media", remote: { ...result.remoteSession, mediaReadOnly: true } });
+          return answer({ ...result, warning: "Media-only recovery. The original uncertain/closed conversation remains blocked; this key cannot send messages." }, record.key);
+        });
+      } catch (error) { return errorResult(error); }
+    });
     server.registerTool("gemini_media_status", {
       description: "Read one bounded Gemini conversation response to retrieve existing generated media. Does not submit, confirm or retry generation, and never changes accounts. Requires the returned local session_key.",
       inputSchema: z.object({ session_key: z.string().uuid() }).strict(), annotations: { readOnlyHint: true },

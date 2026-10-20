@@ -2,8 +2,8 @@ import type { ChatRequest, MediaGenerationRequest, ProviderResult, RemoteSession
 import { GeminiWebClient, type GeminiSelectedReply } from "./web-client.js";
 import type { GeminiModelCatalog } from "./selection.js";
 
-function result(reply: GeminiSelectedReply & { mediaKind?: "image" | "video" }, mediaRequest = false): ProviderResult {
-  const resumable = Boolean(reply.conversationId && reply.replyId && reply.candidateId && reply.accountHash);
+function result(reply: GeminiSelectedReply & { mediaKind?: "image" | "video"; mediaReadOnly?: boolean }, mediaRequest = false): ProviderResult {
+  const resumable = Boolean(reply.conversationId && reply.replyId && (reply.candidateId || reply.mediaReadOnly) && reply.accountHash);
   const lineageWarning = !resumable
     ? "Gemini returned incomplete reply lineage; this result cannot be resumed. Start a new conversation explicitly."
     : mediaRequest && reply.media?.some(item => item.status === "unavailable")
@@ -15,6 +15,7 @@ function result(reply: GeminiSelectedReply & { mediaKind?: "image" | "video" }, 
     remoteSession: resumable ? { conversationId: reply.conversationId, replyId: reply.replyId,
       candidateId: reply.candidateId, accountHash: reply.accountHash,
       ...(reply.mediaKind ? { mediaKind: reply.mediaKind } : {}),
+      ...(reply.mediaReadOnly ? { mediaReadOnly: true } : {}),
       ...(reply.model ? { model: reply.model } : {}), ...(reply.thinkingLevel ? { thinkingLevel: reply.thinkingLevel } : {}) } : undefined,
     warning: [lineageWarning, reply.warning].filter(Boolean).join(" ") || undefined,
   };
@@ -48,8 +49,13 @@ export class GeminiWebProvider implements WebAIProvider {
 
   async getMedia(previous: RemoteSession, signal?: AbortSignal): Promise<ProviderResult> {
     return result({ ...await this.client.getMedia(previous, signal),
+      ...(previous.mediaReadOnly ? { mediaReadOnly: true } : {}),
       ...(typeof previous.model === "string" ? { model: previous.model } : {}),
       ...(typeof previous.thinkingLevel === "string" ? { thinkingLevel: previous.thinkingLevel } : {}) }, true);
+  }
+
+  async recoverMedia(conversationId: string, kind: "image" | "video", _accountId?: string, signal?: AbortSignal): Promise<ProviderResult> {
+    return result(await this.client.recoverMedia(conversationId, kind, signal), true);
   }
 
   async fetchMedia(url: string, init?: RequestInit): Promise<Response> {

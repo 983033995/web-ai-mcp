@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { ProviderError, type ChatRequest, type GeneratedMedia, type MediaGenerationRequest, type RemoteSession } from "../../core/provider.js";
-import { authenticationError, captchaError, configurationError, GeminiWebError, httpError } from "./errors.js";
+import { authenticationError, captchaError, configurationError, GeminiMediaRecoveryError, GeminiWebError, httpError } from "./errors.js";
 import { GeminiQuotaError, type GeminiMediaKind } from "./cooldown.js";
-import { parseGeminiHistory } from "./history.js";
+import { findGeminiMediaTurn, parseGeminiHistory } from "./history.js";
 import { applyGeminiMediaControls, pendingGeminiMedia, validateGeminiMediaRatio, verifiedGeminiMediaURL } from "./media.js";
 import { parseGeminiStream, type GeminiWebReply } from "./stream.js";
 import { encodeGeminiSelection, GEMINI_THINKING_LEVELS, parseGeminiModels, resolveGeminiModel, resolveGeminiThinkingLevel, type GeminiModelCatalog } from "./selection.js";
@@ -116,9 +116,11 @@ async function readText(response: Response, signal: AbortSignal, maxBytes: numbe
 }
 
 function validateSession(previous: RemoteSession): asserts previous is RemoteSession & {
-  conversationId: string; replyId: string; candidateId: string; accountHash: string; mediaKind?: GeminiMediaKind;
+  conversationId: string; replyId: string; candidateId?: string; accountHash: string; mediaKind?: GeminiMediaKind;
 } {
-  if (!remoteId(previous.conversationId, "c_") || !remoteId(previous.replyId, "r_") || !remoteId(previous.candidateId, "rc_") ||
+  if (!remoteId(previous.conversationId, "c_") || !remoteId(previous.replyId, "r_") ||
+      (!remoteId(previous.candidateId, "rc_") && !(previous.mediaReadOnly === true && previous.candidateId === undefined &&
+        (previous.mediaKind === "image" || previous.mediaKind === "video"))) ||
       typeof previous.accountHash !== "string" || !/^[a-f0-9]{64}$/.test(previous.accountHash) ||
       (previous.mediaKind !== undefined && previous.mediaKind !== "image" && previous.mediaKind !== "video")) throw sessionError();
 }
@@ -253,7 +255,7 @@ function parseQuotaResetRpc(text: string, rpcId: string): number | undefined {
   return payload[0] === true && Number.isSafeInteger(seconds) && Number.isSafeInteger(ms) && ms > Date.now() ? ms : undefined;
 }
 
-export type GeminiSelectedReply = GeminiWebReply & { accountHash?: string; model?: string; thinkingLevel?: string; warning?: string };
+export type GeminiSelectedReply = GeminiWebReply & { accountHash?: string; model?: string; thinkingLevel?: string; warning?: string; mediaReadOnly?: boolean };
 
 /** Own-account Gemini Web StreamGenerate client. Never retries a submitted chat. */
 export class GeminiWebClient {
@@ -289,6 +291,21 @@ export class GeminiWebClient {
     return this.send(request, previous);
   }
 
+  async recoverMedia(conversationId: string, kind: GeminiMediaKind, signal?: AbortSignal): Promise<GeminiSelectedReply & { mediaKind: GeminiMediaKind; mediaReadOnly: true }> {
+    if (!remoteId(conversationId, "c_") || (kind !== "image" && kind !== "video")) throw sessionError();
+    if (this.verificationBlocked) throw captchaError();
+    return this.run(signal, async context => {
+      const current = await this.loadContext(context);
+      const response = await this.readHistory(conversationId, context, current);
+      const raw = await readText(response, context.signal, 2 * 1024 * 1024, "media recovery");
+      const selection = await findGeminiMediaTurn(new Response(raw).body!, context.signal, kind);
+      const lineage = { conversationId, ...selection, mediaKind: kind };
+      const status = await parseGeminiHistory(new Response(raw).body!, context.signal, lineage);
+      return { ...lineage, accountHash: current.accountHash, content: status.content,
+        media: await this.confirmMedia(status.media, context.signal), mediaReadOnly: true };
+    });
+  }
+
   async getModels(previous?: RemoteSession, signal?: AbortSignal): Promise<GeminiModelCatalog> {
     if (previous) validateSession(previous);
     if (this.verificationBlocked) throw captchaError();
@@ -321,7 +338,7 @@ export class GeminiWebClient {
       thinking: false, model: request.model, thinkingLevel: request.thinkingLevel, files: files.length ? files : undefined,
       signal: request.signal }, previous, request.kind, request.ratio);
     const warnings = [request.referenceVideos?.length ? "The video was uploaded as a reference attachment; Gemini may decline video-reference generation or return prose. Only completed media confirms generation." : undefined].filter(Boolean);
-    return { ...reply, mediaKind: request.kind, ...(warnings.length ? { warning: warnings.join(" ") } : {}) };
+    return { ...reply, mediaKind: request.kind, warning: [reply.warning, ...warnings].filter(Boolean).join(" ") || undefined };
   }
 
   async getMedia(previous: RemoteSession, signal?: AbortSignal): Promise<GeminiWebReply & { accountHash?: string; mediaKind?: GeminiMediaKind }> {
@@ -330,31 +347,44 @@ export class GeminiWebClient {
     return this.run(signal, async context => {
       const current = await this.loadContext(context);
       if (previous.accountHash !== current.accountHash) throw authenticationError();
-      const url = new URL(BATCH_EXEC_PATH, this.baseUrl);
-      url.search = new URLSearchParams({ rpcids: HISTORY_RPC, "source-path": "/app", bl: current.build,
-        "f.sid": current.fsid, hl: "en", _reqid: String(this.nextRequestId()), rt: "c" }).toString();
-      const payload = [previous.conversationId, 10, null, 1, [1], [4], null, 1];
-      const form = new URLSearchParams({ at: current.at, "f.req": JSON.stringify([[[HISTORY_RPC, JSON.stringify(payload), null, "generic"]]]) });
-      const modelHeader: unknown[] = [1, null, null, null, null, null, null, null, [4, 5, 6, 8], null, null, null, null, null, null, null];
-      modelHeader.push(randomUUID().toUpperCase());
-      const response = await this.request(url, {
-        method: "POST", redirect: "manual", cache: "no-store", signal: context.signal,
-        headers: { Cookie: this.cookie, "User-Agent": this.userAgent, Origin: this.baseUrl.origin,
-          Referer: `${this.baseUrl.origin}/app`, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8", "x-same-domain": "1",
-          "x-goog-ext-525001261-jspb": JSON.stringify(modelHeader), "x-goog-ext-73010989-jspb": "[0]" },
-        body: form,
-      });
-      if (!response.ok) await this.rejectResponse(response, context, false);
-      const contentType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
-      if (!response.body || !["application/json", "text/plain", "application/x-ndjson"].includes(contentType ?? "")) {
-        cancelResponseWithoutWaiting(response);
-        throw new GeminiWebError("invalid_response", "Gemini history returned an unsupported response type");
+      const response = await this.readHistory(previous.conversationId, context, current);
+      let candidateId = previous.candidateId;
+      let body = response.body!;
+      if (!candidateId) {
+        const raw = await readText(response, context.signal, 2 * 1024 * 1024, "media recovery");
+        const selected = await findGeminiMediaTurn(new Response(raw).body!, context.signal, previous.mediaKind!, previous.replyId);
+        candidateId = selected.candidateId;
+        body = new Response(raw).body!;
       }
-      const status = await parseGeminiHistory(response.body, context.signal, previous);
+      const status = await parseGeminiHistory(body, context.signal, { ...previous, candidateId });
       const media = await this.confirmMedia(status.media, context.signal);
       return { content: status.content, media, conversationId: previous.conversationId, replyId: previous.replyId,
-        candidateId: previous.candidateId, accountHash: current.accountHash, mediaKind: previous.mediaKind };
+        candidateId, accountHash: current.accountHash, mediaKind: previous.mediaKind };
     });
+  }
+
+  private async readHistory(conversationId: string, context: RequestContext, current: GeminiContext): Promise<Response> {
+    const url = new URL(BATCH_EXEC_PATH, this.baseUrl);
+    url.search = new URLSearchParams({ rpcids: HISTORY_RPC, "source-path": "/app", bl: current.build,
+      "f.sid": current.fsid, hl: "en", _reqid: String(this.nextRequestId()), rt: "c" }).toString();
+    const payload = [conversationId, 10, null, 1, [1], [4], null, 1];
+    const form = new URLSearchParams({ at: current.at, "f.req": JSON.stringify([[[HISTORY_RPC, JSON.stringify(payload), null, "generic"]]]) });
+    const modelHeader: unknown[] = [1, null, null, null, null, null, null, null, [4, 5, 6, 8], null, null, null, null, null, null, null];
+    modelHeader.push(randomUUID().toUpperCase());
+    const response = await this.request(url, {
+      method: "POST", redirect: "manual", cache: "no-store", signal: context.signal,
+      headers: { Cookie: this.cookie, "User-Agent": this.userAgent, Origin: this.baseUrl.origin,
+        Referer: `${this.baseUrl.origin}/app`, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8", "x-same-domain": "1",
+        "x-goog-ext-525001261-jspb": JSON.stringify(modelHeader), "x-goog-ext-73010989-jspb": "[0]" },
+      body: form,
+    });
+    if (!response.ok) await this.rejectResponse(response, context, false);
+    const contentType = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+    if (!response.body || !["application/json", "text/plain", "application/x-ndjson"].includes(contentType ?? "")) {
+      cancelResponseWithoutWaiting(response);
+      throw new GeminiWebError("invalid_response", "Gemini history returned an unsupported response type");
+    }
+    return response;
   }
 
   /** Authenticated media fetch, restricted to Gemini's verified contribution origin and download path. */
@@ -399,6 +429,7 @@ export class GeminiWebClient {
   }
 
   private async send(request: ChatRequest, previous?: RemoteSession, quotaKind?: GeminiMediaKind, ratio?: string): Promise<GeminiSelectedReply> {
+    if (previous?.mediaReadOnly) throw new GeminiWebError("session_state_error", "Recovered media sessions cannot submit new messages");
     if (!request.message.trim()) throw new GeminiWebError("invalid_request", "Message must not be empty");
     if (request.thinking) throw new GeminiWebError("unsupported_capability", "Use the explicit thinkingLevel selection for Gemini");
     if (previous) validateSession(previous);
@@ -451,12 +482,42 @@ export class GeminiWebClient {
       }
       if (!response.body) throw new GeminiWebError("invalid_response", "Empty Gemini Web stream", true);
       let reply: GeminiWebReply;
+      let recovered = false;
       try {
         reply = await parseGeminiStream(response.body, context.signal, { quotaKind });
       } catch (error) {
-        if (!(error instanceof GeminiQuotaError)) throw error;
-        const resetAtMs = await this.readQuotaReset(context, current);
-        throw new GeminiQuotaError(error.kind, resetAtMs);
+        if (error instanceof GeminiQuotaError) {
+          const resetAtMs = await this.readQuotaReset(context, current);
+          throw new GeminiQuotaError(error.kind, resetAtMs);
+        }
+        if (!(error instanceof GeminiMediaRecoveryError) || !quotaKind) throw error;
+        if (previous && error.lineage.conversationId !== previous.conversationId) throw error;
+        // A failed stream is never replayed. Only authoritative history for the exact
+        // observed reply/candidate may prove an accepted, queryable media operation.
+        let status;
+        let confirmedLineage;
+        try {
+          const response = await this.readHistory(error.lineage.conversationId, context, current);
+          const raw = await readText(response, context.signal, 2 * 1024 * 1024, "media recovery", true);
+          const selection = error.lineage.candidateId ? { replyId: error.lineage.replyId, candidateId: error.lineage.candidateId }
+            : await findGeminiMediaTurn(new Response(raw).body!, context.signal, quotaKind, error.lineage.replyId);
+          confirmedLineage = { conversationId: error.lineage.conversationId, ...selection };
+          status = await parseGeminiHistory(new Response(raw).body!, context.signal, { ...confirmedLineage, mediaKind: quotaKind });
+        } catch (readError) {
+          if (readError instanceof ProviderError && readError.code === "history_not_found") {
+            // Keep only the observed c/r and a read-only handle while the asynchronous
+            // candidate is absent. This never declares completion or permits another write.
+            confirmedLineage = error.lineage;
+            status = { content: "The video request returned conversation/reply identifiers; media is awaiting read-only confirmation.",
+              media: [pendingGeminiMedia(quotaKind, error.lineage)], completionStatus: 1 };
+          } else {
+            if (readError instanceof ProviderError) throw new GeminiWebError(readError.code, readError.message, true);
+            throw error;
+          }
+        }
+        if (!status.media.length) throw error;
+        reply = { ...confirmedLineage, content: status.content, media: status.media, completionStatus: status.completionStatus };
+        recovered = true;
       }
       if (previous) {
         if (reply.conversationId && reply.conversationId !== previous.conversationId) {
@@ -473,6 +534,7 @@ export class GeminiWebClient {
         finalMedia = [pendingGeminiMedia(quotaKind, reply)];
       }
       return { ...reply, ...(finalMedia ? { media: finalMedia } : {}), accountHash: current.accountHash,
+        ...(recovered ? { mediaReadOnly: true, warning: "The generation response requires read-only history follow-up; media may still be awaiting confirmation. This key supports media status/download only, never resubmission." } : {}),
         ...(model ? { model: model.modelId } : {}), ...(level ? { thinkingLevel: level.id } : {}) };
     });
   }

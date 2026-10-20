@@ -53,6 +53,7 @@
 - [x] Verify actual MCP image generation and JPEG download, native video completion via read-only history and MP4 download; record first-stream/expired-login limits without replay or real quota exhaustion (2026-10-20; see GEMINI_VALIDATION.md)
 - [x] Add account model discovery/selection, distinct Low/Medium/High, allowlisted TXT/image/MP4 inputs, reference uploads and native image/video ratio fields (requested 2026-10-20)
 - [x] Verify actual MCP Argon/High MP4 analysis, same-session Flash/Low switch, Lite/Low TXT analysis and Pro/Medium 3:4 reference-image generation/download; separately verify native portrait video dimensions. Video-reference generation remains experimental; see GEMINI_VALIDATION.md for the final result and limits.
+- [x] Fix metadata-only video acknowledgements with media-only pending handles and exact-reply history recovery; add owner-URL recovery for lost/closed media keys. Verify retrieval of existing videos and one newly generated four-reference portrait video without replaying failed submissions (2026-10-20).
 - [x] Add startup usage instructions, explicit parameter/recovery guidance and bounded background chat jobs with idempotent submission, read-only status and cancellation (requested 2026-10-19 after a real Qoder session failure audit)
 - [x] Verify local HTTP/stdio delayed 65-second completion with 3-second client calls, one website write and active session state; no live account requests replayed
 

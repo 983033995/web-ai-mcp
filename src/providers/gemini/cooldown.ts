@@ -294,6 +294,15 @@ export class GeminiAccountProvider implements WebAIProvider {
     return this.bindSession(await provider.getMedia(previous, signal), account);
   }
 
+  async recoverMedia(conversationId: string, kind: GeminiMediaKind, accountId?: string, signal?: AbortSignal): Promise<ProviderResult> {
+    const account = this.accountFor(accountId ? { accountId } : undefined);
+    const provider = this.getProvider(account) as WebAIProvider & {
+      recoverMedia?: (conversationId: string, kind: GeminiMediaKind, accountId?: string, signal?: AbortSignal) => Promise<ProviderResult>;
+    };
+    if (!provider.recoverMedia) throw new ProviderError("Media recovery unavailable", "unsupported_capability");
+    return this.bindSession(await provider.recoverMedia(conversationId, kind, undefined, signal), account);
+  }
+
   async fetchMediaForSession(previous: RemoteSession, url: string, init?: RequestInit): Promise<Response> {
     const account = this.accountFor(previous);
     const provider = this.getProvider(account) as WebAIProvider & {
