@@ -45,6 +45,22 @@ export interface GeminiGeneratedMedia extends GeneratedMedia {
   probeUrl?: string;
 }
 
+/** Observed terminal website error, not a quota rejection or permission to replay. */
+export function isGeminiMediaFailure(candidate: unknown, extracted: GeminiCandidateMedia): boolean {
+  if (extracted.completionStatus !== 2 || extracted.mediaPresent || extracted.media.length) return false;
+  const text = nested(candidate, [1, 0]);
+  return typeof text === "string" && [
+    "Sorry, something went wrong. Please try your request again.",
+    "我只是一个语言模型，不具备这方面的信息或能力，所以恐怕帮不上忙。",
+  ].includes(text.trim());
+}
+
+export function isGeminiMediaQuota(candidate: unknown, extracted: GeminiCandidateMedia, kind: "image" | "video"): boolean {
+  const text = nested(candidate, [1, 0]);
+  return kind === "video" && extracted.completionStatus === 2 && extracted.media.length === 0 &&
+    typeof text === "string" && text.trim() === "I can create more videos as soon as your limit resets. Check your usage in Settings.";
+}
+
 function nested(value: unknown, path: readonly number[]): unknown {
   let current = value;
   for (const index of path) {

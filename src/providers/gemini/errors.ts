@@ -14,6 +14,13 @@ export class GeminiMediaRecoveryError extends GeminiWebError {
   }
 }
 
+/** A quota notice in an existing candidate is recorded, but never authorizes replay. */
+export class GeminiMediaQuotaError extends GeminiWebError {
+  constructor(readonly kind: "image" | "video", readonly resetAtMs?: number) {
+    super("media_quota_exhausted", "The website reports quota exhaustion for this existing media reply; no replay or account switch was performed");
+  }
+}
+
 export const configurationError = () => new GeminiWebError("configuration_error",
   "Configure GEMINI_COOKIE and GEMINI_USER_AGENT from your own Gemini Web session; never share credentials.");
 

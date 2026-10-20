@@ -6,6 +6,7 @@ import test from "node:test";
 import { ProviderError, type MediaGenerationRequest, type ProviderResult, type RemoteSession, type WebAIProvider } from "../src/core/provider.js";
 import { loadGeminiAccounts, type GeminiAccountConfig } from "../src/providers/gemini/accounts.js";
 import { GeminiAccountProvider, GeminiCooldownStore, GeminiQuotaError } from "../src/providers/gemini/cooldown.js";
+import { GeminiMediaQuotaError } from "../src/providers/gemini/errors.js";
 
 const account = (id: string, cooldownMinutes?: GeminiAccountConfig["cooldownMinutes"]): GeminiAccountConfig => ({
   id, cookie: `__Secure-1PSID=${id}-secret`, userAgent: "Fixture Browser/1.0", ...(cooldownMinutes ? { cooldownMinutes } : {}),
@@ -48,6 +49,25 @@ function accountProvider(
 }
 
 const request = (kind: "image" | "video"): MediaGenerationRequest => ({ kind, prompt: "ordinary fixture prompt" });
+
+test("a quota notice in an existing reply records only the bound cooldown and never generates on another account", async t => {
+  const root = await tempDir(t), calls: string[] = [];
+  const store = new GeminiCooldownStore(join(root, "cooldowns.json"), () => 100000);
+  const provider = new GeminiAccountProvider([account("first"), account("second")], config => ({
+    ...fakeProvider(config.id, calls, () => { throw new GeminiMediaQuotaError("video", 200000); }),
+    async getMedia() { calls.push("read:" + config.id); throw new GeminiMediaQuotaError("video", 200000); },
+  }), store);
+  await assert.rejects(provider.getMedia({ accountId: "first", mediaKind: "video" }), (e: any) => e instanceof GeminiMediaQuotaError);
+  assert.deepEqual(calls, ["read:first"]);
+  assert.equal((await store.status("first", "video")).blockedUntilMs, 200000);
+  assert.equal((await store.status("first", "image")).coolingDown, false);
+  assert.equal((await store.status("second", "video")).coolingDown, false);
+  const freshStore = new GeminiCooldownStore(join(root, "fresh.json"), () => 100000);
+  const generating = new GeminiAccountProvider([account("first"), account("second")], config => fakeProvider(config.id, calls,
+    () => { throw new GeminiMediaQuotaError("video", 200000); }), freshStore);
+  await assert.rejects(generating.generateMedia(request("video")), (e: any) => e instanceof GeminiMediaQuotaError);
+  assert.deepEqual(calls, ["read:first", "video:first:new"]);
+});
 
 test("loads ordered accounts from a private file and does not expose credentials in errors", async t => {
   const root = await tempDir(t);
