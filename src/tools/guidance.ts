@@ -41,12 +41,13 @@ export function failureDetails(error: unknown): string {
   const value = error instanceof Error ? error.message : "";
   const rawCode = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : undefined;
   const knownCodes = ["invalid_session", "invalid_request", "authentication_error", "captcha_required", "rate_limit_error", "cancelled", "timeout_error",
-    "network_error", "invalid_response", "malformed_sse", "session_state_error", "stream_error", "website_error", "access_denied", "quota_exhausted", "cooldown_state_error"];
+    "network_error", "invalid_response", "malformed_sse", "session_state_error", "stream_error", "website_error", "access_denied", "quota_exhausted", "cooldown_state_error", "media_generation_failed"];
   const code = rawCode && knownCodes.includes(rawCode) ? rawCode :
     /Use conversation|must identify|Conflicting/.test(value) ? "invalid_arguments" :
     /invalidated|interrupted|uncertain/.test(value) ? "session_uncertain" :
     /missing or expired|Session missing/.test(value) ? "session_missing" : "request_failed";
   const action = code === "invalid_arguments" ? "Correct the selectors; send message plus either name or returned key, not both." :
+    code === "media_generation_failed" ? "The website ended this reply without media. Stop polling it; inspect the input and website outcome. Do not automatically replay or switch accounts." :
     code === "session_missing" ? "Do not reuse this key. List sessions; after explicit user intent, start a new conversation without the closed/missing key." :
     code === "invalid_session" ? "Website session creation/lineage was not confirmed. Stop unchanged retries; inspect current website access/configuration and protocol." :
     code === "quota_exhausted" ? "All eligible accounts for this operation are cooling down, or this conversation is pinned to an exhausted account. Read gemini_accounts; do not resubmit until the corresponding cooldown expires." :

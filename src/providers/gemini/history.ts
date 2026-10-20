@@ -1,6 +1,6 @@
 import type { GeneratedMedia } from "../../core/provider.js";
 import { GeminiWebError } from "./errors.js";
-import { extractGeminiCandidateMedia, pendingGeminiMedia } from "./media.js";
+import { extractGeminiCandidateMedia, isGeminiMediaFailure, pendingGeminiMedia } from "./media.js";
 
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_FRAME_BYTES = 1024 * 1024;
@@ -197,6 +197,7 @@ export async function findGeminiMediaTurn(
         const candidateId = Array.isArray(candidate) ? candidate[0] : undefined;
         if (typeof candidateId !== "string" || !/^rc_[A-Za-z0-9_-]{1,253}$/.test(candidateId)) continue;
         const extracted = extractGeminiCandidateMedia(candidate, { replyId, candidateId }, kind);
+        if (isGeminiMediaFailure(candidate, extracted)) throw new GeminiWebError("media_generation_failed", "The website reports this media generation failed; no media exists in this reply. No automatic replay was performed.");
         if (extracted.mediaPresent || (requestedReplyId && extracted.completionStatus === 1)) return { replyId, candidateId };
       }
     }
@@ -224,6 +225,7 @@ export async function parseGeminiHistory(
         throw malformed();
       }
       let media = extracted.media;
+      if (lineage.mediaKind && isGeminiMediaFailure(candidate, extracted)) throw new GeminiWebError("media_generation_failed", "The website reports this media generation failed; no media exists in this reply. No automatic replay was performed.");
       if (!media.length && extracted.completionStatus === 1 && lineage.mediaKind) {
         media = [pendingGeminiMedia(lineage.mediaKind, lineage)];
       }

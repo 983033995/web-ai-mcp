@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { extractGeminiCandidateMedia, geminiMediaURL } from "../src/providers/gemini/media.js";
-import { parseGeminiHistory } from "../src/providers/gemini/history.js";
+import { findGeminiMediaTurn, parseGeminiHistory } from "../src/providers/gemini/history.js";
 
 const lineage = { conversationId: "c_media", replyId: "r_media", candidateId: "rc_media" };
 const imagePreview = "https://lh3.googleusercontent.com/gg/generated-image?alr=1";
@@ -144,4 +144,26 @@ test("history resolves the exact reply and candidate and updates pending video t
   const differentTurn = historyResponse(videoCandidate(2));
   await assert.rejects(parseGeminiHistory(differentTurn.body!, new AbortController().signal,
     { ...lineage, replyId: "r_other", mediaKind: "video" }), (error: any) => error.code === "history_not_found");
+});
+
+test("a completed website failure without media is terminal, never pending or a quota failover", async () => {
+  const candidate: unknown[] = Array(13).fill(null);
+  candidate[0] = lineage.candidateId;
+  candidate[1] = ["Sorry, something went wrong. Please try your request again."];
+  candidate[8] = [2]; candidate[12] = [null, null, null, null, null, null, null, []];
+  await assert.rejects(parseGeminiHistory(historyResponse(candidate).body!, new AbortController().signal, { ...lineage, mediaKind: "video" }),
+    (e: any) => e.code === "media_generation_failed" && !e.sessionUncertain);
+  await assert.rejects(findGeminiMediaTurn(historyResponse(candidate).body!, new AbortController().signal, "video"),
+    (e: any) => e.code === "media_generation_failed");
+  candidate[1] = ["我只是一个语言模型，不具备这方面的信息或能力，所以恐怕帮不上忙。"];
+  await assert.rejects(parseGeminiHistory(historyResponse(candidate).body!, new AbortController().signal, { ...lineage, mediaKind: "video" }),
+    (e: any) => e.code === "media_generation_failed");
+  await assert.rejects(parseGeminiHistory(historyResponse(candidate).body!, new AbortController().signal, { ...lineage, replyId: "r_other", mediaKind: "video" }),
+    (e: any) => e.code === "history_not_found");
+  candidate[8] = [1];
+  const waiting = await parseGeminiHistory(historyResponse(candidate).body!, new AbortController().signal, { ...lineage, mediaKind: "video" });
+  assert.equal(waiting.media[0].status, "pending");
+  candidate[8] = [2]; candidate[1] = ["A normal clarification response."];
+  const clarification = await parseGeminiHistory(historyResponse(candidate).body!, new AbortController().signal, { ...lineage, mediaKind: "video" });
+  assert.deepEqual(clarification.media, []);
 });
