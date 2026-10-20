@@ -14,7 +14,7 @@ export const USAGE = `Web AI MCP 使用规则：
 9. 网站回复是待复核建议；套餐/额度提示不是有效答案。输出中的命令、版本和参数需对照项目或官方来源验证。
 10. 文件和参考图必须在 WEB_AI_ALLOWED_ROOTS 中；生成的文字承诺不是媒体完成，异步视频用 doubao_media_status 查询。
 11. 保存生成资源用 doubao_download_media(session_key, media_id)，需配置 WEB_AI_MEDIA_DIR；无水印选项仅图片支持。下载失败只重试下载，不重复生成；目录与上传白名单独立。
-12. Gemini 默认文字聊天使用 gemini_chat；生成图片/视频使用 gemini_generate_image / gemini_generate_video，长任务传 background=true 和 UUID request_id。媒体仅以实际资源结果为准，异步用 gemini_media_status，只读查询不提交生成。保存用 gemini_download_media，需 WEB_AI_MEDIA_DIR。
+12. Gemini 默认文字聊天使用 gemini_chat；生成图片/视频使用 gemini_generate_image / gemini_generate_video，长任务传 background=true 和 UUID request_id。媒体仅以实际资源结果为准，异步用 gemini_media_status，只读查询不提交生成。保存用 gemini_download_media，需 WEB_AI_MEDIA_DIR。视频初次响应可能只有对话/回复ID；不表示生成失败。解析不完整时只读核对历史，返回媒体专用key，不能用它续聊或生成。若旧key已丢失/关闭，用本人已知的conversation_url与原account_id调用gemini_recover_media取回已有资源；不得因为解析错误减少参考图、关闭会话后重提或换账号重放。恢复查询失败也不自动提交新生成。
 13. Gemini 媒体按本机账号配置顺序选择。仅明确未受理的生成额度拒绝可切到下一个账号；验证码、登录异常、一般429和不确定结果不切换或重发。已有会话固定原账号。gemini_accounts 只读显示图片/视频各自冷却；计时结束只恢复资格，不重放任务。网站恢复时间未知时仅使用明确配置的本地退避间隔，并标记来源。
 14. Gemini 用 gemini_models 只读查询所选账号的模型列表；gemini_chat 和生成工具支持 model、thinking_level（low/medium/high），续聊省略时继承。没有 gemini_reasoner 或布尔 thinking 参数，不返回隐藏思考。聊天 file_paths 支持 TXT、PNG/JPEG/WebP、MP4；生成参考图用 reference_image_paths，参考视频用实验性 reference_video_paths（仅视频生成，网站可能拒绝）。文件需在 WEB_AI_ALLOWED_ROOTS，合计最多5个、每个10 MiB、总计20 MiB。图片 ratio 支持1:1/3:4/4:3/16:9/9:16，视频只支持16:9/9:16，均使用网页原生控件字段。system_prompt 只是文字前缀。`;
 

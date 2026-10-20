@@ -105,7 +105,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
 
 > 调用 `webai_providers` 查看可用服务，再调用 `deepseek_chat`，询问“请用一句话介绍你能帮我做什么”。
 
-仅配置 DeepSeek 时应发现 9 个工具，仅豆包为 13 个，两者同时配置为 18 个。当前源码仅配置 Gemini 为 13 个，三者同时配置为 27 个。工具发现说明本地连接成功；收到实际答案才说明当前账号的网站请求成功。
+仅配置 DeepSeek 时应发现 9 个工具，仅豆包为 13 个，两者同时配置为 18 个。当前源码仅配置 Gemini 为 14 个，三者同时配置为 28 个。工具发现说明本地连接成功；收到实际答案才说明当前账号的网站请求成功。
 
 ## 接入 MCP 客户端
 
@@ -557,6 +557,7 @@ npx tsx scripts/probe-doubao.ts --env-file /private/path/.env --live --features
 | `gemini_session_close` | 删除本地映射，不删除网站历史、不撤回已提交消息 |
 | `gemini_generate_image` | `prompt` 生成图片；可选模型、思考等级、原生比例和 `reference_image_paths` |
 | `gemini_generate_video` | 生成短视频；可选模型、思考等级、横/竖屏、参考图和实验性 `reference_video_paths`；不指定未验证的时长 |
+| `gemini_recover_media` | 用本人已知的 `conversation_url`、原 `account_id` 和 `kind` 只读取回已有媒体，返回禁止聊天/生成的媒体专用 key |
 | `gemini_media_status` | 单次有界只读历史查询，确认已有生成结果；不提交、确认或重发生成 |
 | `gemini_download_media` | 用实际 `session_key` / `media_id` 保存已完成媒体，需 `WEB_AI_MEDIA_DIR`；不提供去水印 |
 | `gemini_accounts` | 只读显示账号顺序及图片/视频各自的冷却来源、到期时间和剩余秒数 |
@@ -566,6 +567,8 @@ npx tsx scripts/probe-doubao.ts --env-file /private/path/.env --live --features
 聊天的 `file_paths`、生成的 `reference_image_paths` / `reference_video_paths` 必须是 `WEB_AI_ALLOWED_ROOTS` 内的绝对路径。当前支持 UTF-8 TXT、PNG/JPEG/WebP 和 MP4；每次合计最多5个，每个10 MiB，总计20 MiB。图片参考只接受图片，视频参考只接受 MP4 且仅视频生成可用。MP4 上传分析已有实际 MCP 验证；上传作为生成参考不代表网站一定支持重绘、动作复刻或视频编辑，须以实际媒体结果为准。上传内容、文件名、上传标识都不写入会话存储；切到另一个账号时重新上传。
 
 `ratio` 使用网页原生比例字段：图片 `1:1`、`3:4`、`4:3`、`16:9`、`9:16`；视频 `16:9`、`9:16`。不是任意分辨率控制，实际资源或预览尺寸仍由网站决定。参考图生成示例：`{"prompt":"保留主体，背景改为浅绿色。","model":"3.1 Pro","thinking_level":"medium","ratio":"3:4","reference_image_paths":["/absolute/allowed/reference.jpg"]}`。
+
+视频初次响应可能只有对话/回复 ID，没有候选结果 ID。服务会按原回复只读查历史；尚未发布时返回等待确认的媒体专用 key，不能据此宣称视频已完成。这类 key 只能 `gemini_media_status` / `gemini_download_media`，不能聊天或重新生成。旧 key 已关闭或丢失时，可用 `gemini_recover_media` 恢复已有对话中的媒体；该操作不解锁原 uncertain 会话，也不会重发。解析失败不是网站生成失败的证据，不能靠减少参考图、关会话再开或换账号来重提。
 
 聊天与两种生成均可加入 `"background":true` 和新的 UUID `request_id`，随后只读查询 `webai_job_status`。同样的 key 可在 MCP 正常重启后续聊；读取完后台结果后再重启。媒体完成必须有实际资源；文字承诺或只收到生成占位不能当作成功下载。
 
@@ -685,7 +688,7 @@ npx -y @modelcontextprotocol/inspector --cli node dist/index.js \
   -e DEEPSEEK_USER_TOKEN=local-discovery-placeholder --method tools/list
 ```
 
-仅 DeepSeek 为 9 个工具，仅豆包为 13 个，两者同时配置为 18 个；当前源码仅 Gemini 为 13 个，三者为 27 个。工具发现成功不等于真实聊天成功。
+仅 DeepSeek 为 9 个工具，仅豆包为 13 个，两者同时配置为 18 个；当前源码仅 Gemini 为 14 个，三者为 28 个。工具发现成功不等于真实聊天成功。
 
 ### 可选：本人账号网站 smoke
 

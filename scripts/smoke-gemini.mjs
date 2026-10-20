@@ -77,7 +77,7 @@ try {
     return { result, error: Boolean(result.isError), text: result.content.filter(i => i.type === "text").map(i => i.text).join("\n") };
   };
   await connect();
-  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ["gemini_accounts", "gemini_chat", "gemini_download_media", "gemini_generate_image", "gemini_generate_video", "gemini_media_status", "gemini_models", "gemini_session_close", "gemini_sessions_list", "webai_job_cancel", "webai_job_status", "webai_providers", "webai_usage"]);
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ["gemini_accounts", "gemini_chat", "gemini_download_media", "gemini_generate_image", "gemini_generate_video", "gemini_media_status", "gemini_models", "gemini_recover_media", "gemini_session_close", "gemini_sessions_list", "webai_job_cancel", "webai_job_status", "webai_providers", "webai_usage"]);
   const providers = JSON.parse((await call("webai_providers")).text);
   assert.equal(providers.active.length, 1); assert.equal(providers.active[0].id, "gemini");
   assert.equal(providers.active[0].capabilities.thinking, true); assert.equal(providers.active[0].capabilities.files, true);
@@ -108,7 +108,7 @@ try {
   assert.equal((await call("gemini_session_close", { session_key: key })).error, false);
   assert.equal((await call("gemini_chat", { message: "closed", session_key: key })).error, true); assert.equal(writes, 3);
   if (failure) throw failure;
-  console.log(JSON.stringify({ mode: "Gemini local HTTP/stdio fixture; no website credentials", passed: ["Gemini-only thirteen tools", "default chat", "background follow-up after process restart", "private secret-free lineage", "unsupported/unknown/closed selectors rejected before write", "incomplete streams remain blocked after restart"] }, null, 2));
+  console.log(JSON.stringify({ mode: "Gemini local HTTP/stdio fixture; no website credentials", passed: ["Gemini-only fourteen tools", "default chat", "background follow-up after process restart", "private secret-free lineage", "unsupported/unknown/closed selectors rejected before write", "incomplete streams remain blocked after restart"] }, null, 2));
 } catch {
   console.error(`[gemini smoke] failed at ${stage}; private details suppressed`); process.exitCode = 1;
 } finally {

@@ -7,6 +7,13 @@ export class GeminiWebError extends ProviderError {
   }
 }
 
+/** Validated identifiers only; never includes the failed stream, prompt or resource URLs. */
+export class GeminiMediaRecoveryError extends GeminiWebError {
+  constructor(error: GeminiWebError, readonly lineage: { conversationId: string; replyId: string; candidateId?: string }) {
+    super(error.code, error.message, true);
+  }
+}
+
 export const configurationError = () => new GeminiWebError("configuration_error",
   "Configure GEMINI_COOKIE and GEMINI_USER_AGENT from your own Gemini Web session; never share credentials.");
 

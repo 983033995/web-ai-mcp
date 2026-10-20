@@ -1,4 +1,4 @@
-import { GeminiWebError } from "./errors.js";
+import { GeminiMediaRecoveryError, GeminiWebError } from "./errors.js";
 import { GeminiQuotaError, type GeminiMediaKind } from "./cooldown.js";
 import { extractGeminiCandidateMedia } from "./media.js";
 import type { GeneratedMedia } from "../../core/provider.js";
@@ -57,7 +57,7 @@ function validFrameLength(expected: number, line: string): boolean {
 function applyFrame(frame: unknown, state: {
   conversationId?: string; replyId?: string; candidateId?: string; content: string; records: number;
   endRecordSeen: boolean; outerEntries: number; totalBytes?: number; allObservedLengths: boolean;
-  media: GeneratedMedia[]; completionStatus?: number; sawCandidate: boolean; sawProgress: boolean;
+  media: GeneratedMedia[]; completionStatus?: number; sawCandidate: boolean; sawProgress: boolean; lineageConflict: boolean;
 }, alreadyTerminal: boolean, observedLength: boolean, quotaKind?: GeminiMediaKind): boolean {
   if (!Array.isArray(frame)) throw malformed();
   const entries = typeof frame[0] === "string" ? [frame] : frame;
@@ -128,11 +128,15 @@ function applyFrame(frame: unknown, state: {
       const conversationId = metadata[0];
       const replyId = metadata[1];
       if (conversationId !== undefined && conversationId !== null) {
-        if (!id(conversationId, "c_") || (state.conversationId && conversationId !== state.conversationId)) throw malformed();
+        if (!id(conversationId, "c_") || (state.conversationId && conversationId !== state.conversationId)) {
+          state.lineageConflict = true; throw malformed();
+        }
         state.conversationId = conversationId;
       }
       if (replyId !== undefined && replyId !== null) {
-        if (!id(replyId, "r_") || (state.replyId && replyId !== state.replyId)) throw malformed();
+        if (!id(replyId, "r_") || (state.replyId && replyId !== state.replyId)) {
+          state.lineageConflict = true; throw malformed();
+        }
         state.replyId = replyId;
       }
     }
@@ -144,7 +148,9 @@ function applyFrame(frame: unknown, state: {
     state.sawCandidate = true;
     const candidateId = candidate[0];
     if (candidateId !== undefined && candidateId !== null) {
-      if (!id(candidateId, "rc_") || (state.candidateId && candidateId !== state.candidateId)) throw malformed();
+      if (!id(candidateId, "rc_") || (state.candidateId && candidateId !== state.candidateId)) {
+        state.lineageConflict = true; throw malformed();
+      }
       state.candidateId = candidateId;
     }
     const candidateText = candidate[1];
@@ -181,9 +187,9 @@ export async function parseGeminiStream(
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const state: { conversationId?: string; replyId?: string; candidateId?: string; content: string; records: number;
     endRecordSeen: boolean; outerEntries: number; totalBytes?: number; allObservedLengths: boolean;
-    media: GeneratedMedia[]; completionStatus?: number; sawCandidate: boolean; sawProgress: boolean } = {
+    media: GeneratedMedia[]; completionStatus?: number; sawCandidate: boolean; sawProgress: boolean; lineageConflict: boolean } = {
     content: "", records: 0, endRecordSeen: false, outerEntries: 0, allObservedLengths: true,
-    media: [], sawCandidate: false, sawProgress: false,
+    media: [], sawCandidate: false, sawProgress: false, lineageConflict: false,
   };
   let pending = "";
   let bytes = 0;
@@ -265,6 +271,12 @@ export async function parseGeminiStream(
       candidateId: state.candidateId, ...(state.media.length ? { media: state.media } : {}),
       ...(state.completionStatus === undefined ? {} : { completionStatus: state.completionStatus }) };
   } catch (error) {
+    if (options.quotaKind && !signal.aborted && !state.lineageConflict && error instanceof GeminiWebError &&
+        ["invalid_response", "stream_error"].includes(error.code) && id(state.conversationId, "c_") &&
+        id(state.replyId, "r_") && (state.candidateId === undefined || id(state.candidateId, "rc_"))) {
+      throw new GeminiMediaRecoveryError(error, { conversationId: state.conversationId, replyId: state.replyId,
+        ...(state.candidateId ? { candidateId: state.candidateId } : {}) });
+    }
     if (error instanceof GeminiWebError || error instanceof GeminiQuotaError || signal.aborted) throw error;
     throw malformed();
   } finally {

@@ -42,11 +42,10 @@ function cancelWithoutWaiting(reader: ReadableStreamDefaultReader<Uint8Array>): 
 }
 
 /** Read only the turns RPC. It never submits or retries a chat/generation request. */
-export async function parseGeminiHistory(
+async function readHistoryRecords(
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal,
-  lineage: { conversationId: string; replyId: string; candidateId: string; mediaKind?: "image" | "video" },
-): Promise<GeminiHistoryResult> {
+): Promise<unknown[][]> {
   const reader = body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let bytes = 0;
@@ -166,7 +165,7 @@ export async function parseGeminiHistory(
       }
       if (Buffer.byteLength(pending, "utf8") > MAX_FRAME_BYTES) throw malformed();
     }
-    if (expectedLength !== undefined || (endSeen && endBytes !== bytes) || !rpcRecords.length) throw malformed();
+    if (expectedLength !== undefined || !terminal || (endSeen && endBytes !== bytes) || !rpcRecords.length) throw malformed();
   } catch (error) {
     if (error instanceof GeminiWebError || signal.aborted) throw error;
     throw malformed();
@@ -178,7 +177,38 @@ export async function parseGeminiHistory(
     }
   }
 
-  for (const record of rpcRecords) {
+  return rpcRecords;
+}
+
+/** Explicit recovery from an owner-provided conversation URL, never a new generation. */
+export async function findGeminiMediaTurn(
+  body: ReadableStream<Uint8Array>, signal: AbortSignal, kind: "image" | "video", requestedReplyId?: string,
+): Promise<{ replyId: string; candidateId: string }> {
+  const records = await readHistoryRecords(body, signal);
+  for (const record of records) {
+    const turns = record[0];
+    if (!Array.isArray(turns) || turns.length > 20) throw malformed();
+    for (const turn of turns) {
+      const replyId = nested(turn, [0, 1]);
+      if (requestedReplyId && replyId !== requestedReplyId) continue;
+      const candidates = nested(turn, [3, 0]);
+      if (typeof replyId !== "string" || !/^r_[A-Za-z0-9_-]{1,254}$/.test(replyId) || !Array.isArray(candidates) || candidates.length > 8) continue;
+      for (const candidate of candidates) {
+        const candidateId = Array.isArray(candidate) ? candidate[0] : undefined;
+        if (typeof candidateId !== "string" || !/^rc_[A-Za-z0-9_-]{1,253}$/.test(candidateId)) continue;
+        const extracted = extractGeminiCandidateMedia(candidate, { replyId, candidateId }, kind);
+        if (extracted.mediaPresent || (requestedReplyId && extracted.completionStatus === 1)) return { replyId, candidateId };
+      }
+    }
+  }
+  throw new GeminiWebError("history_not_found", "No generated media turn was found; no new request was sent");
+}
+
+export async function parseGeminiHistory(
+  body: ReadableStream<Uint8Array>, signal: AbortSignal,
+  lineage: { conversationId: string; replyId: string; candidateId: string; mediaKind?: "image" | "video" },
+): Promise<GeminiHistoryResult> {
+  for (const record of await readHistoryRecords(body, signal)) {
     const turns = record[0];
     if (!Array.isArray(turns) || turns.length > 20) throw malformed();
     for (const turn of turns) {
