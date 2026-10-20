@@ -12,7 +12,8 @@ export const USAGE = `Web AI MCP 使用规则：
 7. invalid_session/Missing Web session ID 表示网站会话创建/协议未确认，不代表 prompt 太长；停止原样重试并检查网站/凭据/协议。认证、验证码、限流或额度不足时停止；不自动切模式/换账号规避。
 8. 同一私有会话存储的写入需串行；不要并发调用两个 provider 来加速。make_default 只绑定成功的会话，不会修复失效会话。
 9. 网站回复是待复核建议；套餐/额度提示不是有效答案。输出中的命令、版本和参数需对照项目或官方来源验证。
-10. 文件和参考图必须在 WEB_AI_ALLOWED_ROOTS 中；生成的文字承诺不是媒体完成，异步视频用 doubao_media_status 查询。`;
+10. 文件和参考图必须在 WEB_AI_ALLOWED_ROOTS 中；生成的文字承诺不是媒体完成，异步视频用 doubao_media_status 查询。
+11. 保存生成资源用 doubao_download_media(session_key, media_id)，需配置 WEB_AI_MEDIA_DIR；无水印选项仅图片支持。下载失败只重试下载，不重复生成；目录与上传白名单独立。`;
 
 export const CHAT_DESCRIPTION = " message is required every turn. Use conversation_name OR returned session_key, never both; closed/uncertain keys cannot be reused. For long tasks use background=true + a new UUID request_id, then poll webai_job_status; never resubmit after timeout. Read webai_usage before first use.";
 

@@ -1,4 +1,4 @@
-import type { ChatRequest, FileInput, MediaGenerationRequest, ProviderResult, RemoteSession, WebAIProvider } from "../../core/provider.js";
+import type { ChatRequest, FileInput, GeneratedMedia, MediaGenerationRequest, ProviderResult, RemoteSession, WebAIProvider } from "../../core/provider.js";
 import { DoubaoWebClient } from "./web-client.js";
 import type { DoubaoWebReply } from "./sse.js";
 
@@ -27,6 +27,10 @@ export class DoubaoWebProvider implements WebAIProvider {
 
   async getMedia(previous: RemoteSession, signal?: AbortSignal): Promise<ProviderResult> {
     return this.client.getMedia(previous, signal);
+  }
+
+  async resolveMediaDownload(media: GeneratedMedia, withoutWatermark: boolean, signal?: AbortSignal): Promise<string> {
+    return this.client.resolveMediaDownload(media, withoutWatermark, signal);
   }
 
   private result(reply: DoubaoWebReply): ProviderResult {
