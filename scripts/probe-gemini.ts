@@ -54,7 +54,7 @@ async function main(): Promise<void> {
   try {
     stage = "tool discovery"; await connect();
     const names = (await client!.listTools()).tools.map(t => t.name);
-    if (names.length !== 12 || !["gemini_chat", "gemini_sessions_list", "gemini_session_close", "webai_job_status", "gemini_accounts"].every(n => names.includes(n))) throw new Error("tool_discovery_failed");
+    if (names.length !== 13 || !["gemini_chat", "gemini_sessions_list", "gemini_session_close", "webai_job_status", "gemini_accounts"].every(n => names.includes(n))) throw new Error("tool_discovery_failed");
     stage = "background first reply";
     await writeFile(journal, JSON.stringify({ stage, status: "pending", replay: false }), { mode: 0o600 });
     const requestId = randomUUID();
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
     if (!(await call("gemini_chat", { message: "继续刚才的故事。", session_key: randomUUID() })).isError) throw new Error("unknown_key_not_rejected");
     await writeFile(journal, JSON.stringify({ status: "completed", messages: 3, background: true, restart: true, replay: false }), { mode: 0o600 });
     complete = true;
-    console.log(JSON.stringify({ mode: "actual Gemini MCP stdio", passed: ["Gemini-only twelve tools (media not exercised)", "background chat and read-only status", "same-conversation recall", "restart recall", "secret-free lineage storage", "unknown key rejected"], messageCount: 3, model: "website default" }));
+    console.log(JSON.stringify({ mode: "actual Gemini MCP stdio", passed: ["Gemini-only thirteen tools (media not exercised)", "background chat and read-only status", "same-conversation recall", "restart recall", "secret-free lineage storage", "unknown key rejected"], messageCount: 3, model: "website default" }));
   } finally {
     await client?.close(); await transport?.close();
     if (complete) await rm(directory, { recursive: true, force: true });

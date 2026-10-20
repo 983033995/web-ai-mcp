@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { ChatRequest, GeneratedMedia, MediaGenerationRequest, RemoteSession } from "../../core/provider.js";
+import { ProviderError, type ChatRequest, type GeneratedMedia, type MediaGenerationRequest, type RemoteSession } from "../../core/provider.js";
 import { authenticationError, captchaError, configurationError, GeminiWebError, httpError } from "./errors.js";
 import { GeminiQuotaError, type GeminiMediaKind } from "./cooldown.js";
 import { parseGeminiHistory } from "./history.js";
-import { pendingGeminiMedia, verifiedGeminiMediaURL } from "./media.js";
+import { applyGeminiMediaControls, pendingGeminiMedia, validateGeminiMediaRatio, verifiedGeminiMediaURL } from "./media.js";
 import { parseGeminiStream, type GeminiWebReply } from "./stream.js";
+import { encodeGeminiSelection, GEMINI_THINKING_LEVELS, parseGeminiModels, resolveGeminiModel, resolveGeminiThinkingLevel, type GeminiModelCatalog } from "./selection.js";
+import { uploadGeminiFiles } from "./upload.js";
 
 export interface GeminiWebClientOptions {
   baseUrl?: string;
@@ -29,6 +31,7 @@ const STREAM_GENERATE_PATH = "/_/BardChatUi/data/assistant.lamda.BardFrontendSer
 const BATCH_EXEC_PATH = "/_/BardChatUi/data/batchexecute";
 const HISTORY_RPC = "hNvQHb";
 const QUOTA_RPC = "aPya6c";
+const MODELS_RPC = "otAQ7b";
 const MAX_MEDIA_PROBES = 10;
 const MAX_MEDIA_REDIRECTS = 2;
 
@@ -138,7 +141,7 @@ function chatPayload(prompt: string, previous?: RemoteSession): unknown[] {
   return payload;
 }
 
-function parseQuotaResetRpc(text: string, rpcId: string): number | undefined {
+function parseGeminiRpc(text: string, rpcId: string): unknown {
   const parts = text.split("\n");
   let expectedLength: number | undefined;
   let xssiSeen = false;
@@ -147,7 +150,7 @@ function parseQuotaResetRpc(text: string, rpcId: string): number | undefined {
   let endSeen = false;
   let outerEntries = 0;
   let hasRPC = false;
-  let resetAtMs: number | undefined;
+  let rpcPayload: unknown;
   let frameLines = 0;
   const allFramedWithObservedLengths = parts.every((line, index) => {
     if (!/^\d+$/.test(line.replace(/\r$/, ""))) return true;
@@ -230,22 +233,27 @@ function parseQuotaResetRpc(text: string, rpcId: string): number | undefined {
       }
       let payload: unknown;
       try { payload = JSON.parse(entry[2]); } catch { throw new GeminiWebError("invalid_response", "Invalid Gemini quota RPC payload"); }
-      if (!Array.isArray(payload) || typeof payload[0] !== "boolean" || typeof payload[1] !== "number" || !Number.isFinite(payload[1])) {
-        throw new GeminiWebError("invalid_response", "Unexpected Gemini quota RPC payload shape");
-      }
       hasRPC = true;
-      const resetSeconds = Array.isArray(payload[2]) ? payload[2][0] : undefined;
-      if (payload[0] === true && typeof resetSeconds === "number" && Number.isSafeInteger(resetSeconds) && resetSeconds > 0) {
-        const candidateMs = resetSeconds * 1000;
-        if (Number.isSafeInteger(candidateMs) && candidateMs > Date.now()) resetAtMs = candidateMs;
-      }
+      rpcPayload = payload;
       outerEntries++;
     }
     if (sawDi) terminal = true;
   }
   if (expectedLength !== undefined || !hasRPC || !terminal) throw new GeminiWebError("invalid_response", "Gemini quota RPC response is incomplete");
-  return resetAtMs;
+  return rpcPayload;
 }
+
+function parseQuotaResetRpc(text: string, rpcId: string): number | undefined {
+  const payload = parseGeminiRpc(text, rpcId);
+  if (!Array.isArray(payload) || typeof payload[0] !== "boolean" || typeof payload[1] !== "number" || !Number.isFinite(payload[1])) {
+    throw new GeminiWebError("invalid_response", "Unexpected Gemini quota RPC payload shape");
+  }
+  const seconds = Array.isArray(payload[2]) ? payload[2][0] : undefined;
+  const ms = typeof seconds === "number" ? seconds * 1000 : NaN;
+  return payload[0] === true && Number.isSafeInteger(seconds) && Number.isSafeInteger(ms) && ms > Date.now() ? ms : undefined;
+}
+
+export type GeminiSelectedReply = GeminiWebReply & { accountHash?: string; model?: string; thinkingLevel?: string; warning?: string };
 
 /** Own-account Gemini Web StreamGenerate client. Never retries a submitted chat. */
 export class GeminiWebClient {
@@ -277,24 +285,43 @@ export class GeminiWebClient {
   /** Configuration is checked by the constructor; discovery never contacts Gemini. */
   async initialize(): Promise<void> {}
 
-  async chat(request: ChatRequest, previous?: RemoteSession): Promise<GeminiWebReply & { accountHash?: string }> {
+  async chat(request: ChatRequest, previous?: RemoteSession): Promise<GeminiSelectedReply> {
     return this.send(request, previous);
   }
 
-  async generateMedia(request: MediaGenerationRequest, previous?: RemoteSession): Promise<GeminiWebReply & { accountHash?: string; mediaKind?: GeminiMediaKind }> {
+  async getModels(previous?: RemoteSession, signal?: AbortSignal): Promise<GeminiModelCatalog> {
+    if (previous) validateSession(previous);
+    if (this.verificationBlocked) throw captchaError();
+    return this.run(signal, async context => {
+      const current = await this.loadContext(context);
+      if (previous && previous.accountHash !== current.accountHash) throw authenticationError();
+      return this.readModels(context, current);
+    });
+  }
+
+  async generateMedia(request: MediaGenerationRequest, previous?: RemoteSession): Promise<GeminiSelectedReply & { mediaKind?: GeminiMediaKind }> {
     if (!request.prompt.trim() || request.prompt.length > 20_000) {
       throw new GeminiWebError("invalid_request", "Gemini media prompt must be nonempty and at most 20,000 characters");
     }
-    if (request.model !== undefined || request.style !== undefined || request.referenceImages?.length ||
-        request.ratio !== undefined || request.durationSeconds !== undefined) {
-      throw new GeminiWebError("unsupported_capability", "Gemini Web media supports prompt and kind only; model, style, references, ratio and duration are not verified");
+    if (request.style !== undefined || request.durationSeconds !== undefined) {
+      throw new GeminiWebError("unsupported_capability", "Gemini Web style and duration fields are not verified");
     }
+    validateGeminiMediaRatio(request.kind, request.ratio);
+    if (request.referenceVideos?.length && request.kind !== "video") throw new GeminiWebError("invalid_request", "Video references require video generation");
+    if (request.referenceImages?.some(f => !/\.(png|jpe?g|webp)$/i.test(f.name)) ||
+        request.referenceVideos?.some(f => !/\.mp4$/i.test(f.name))) throw new GeminiWebError("invalid_file", "Reference file type is unsupported");
     const prefix = request.kind === "image"
       ? "Generate an image based on this description: "
       : request.kind === "video" ? "Generate a short video based on this description: " : undefined;
     if (!prefix) throw new GeminiWebError("invalid_request", "Gemini media kind must be image or video");
-    const reply = await this.send({ message: prefix + request.prompt.trim(), thinking: false, signal: request.signal }, previous, request.kind);
-    return { ...reply, mediaKind: request.kind };
+    const files = [...(request.referenceImages ?? []), ...(request.referenceVideos ?? [])];
+    const ratioInstruction = request.ratio ? `\nRequested output aspect ratio: ${request.ratio}.` : "";
+    const referenceInstruction = files.length ? "\nUse the attached files as visual references for this creation." : "";
+    const reply = await this.send({ message: prefix + request.prompt.trim() + ratioInstruction + referenceInstruction,
+      thinking: false, model: request.model, thinkingLevel: request.thinkingLevel, files: files.length ? files : undefined,
+      signal: request.signal }, previous, request.kind, request.ratio);
+    const warnings = [request.referenceVideos?.length ? "The video was uploaded as a reference attachment; Gemini may decline video-reference generation or return prose. Only completed media confirms generation." : undefined].filter(Boolean);
+    return { ...reply, mediaKind: request.kind, ...(warnings.length ? { warning: warnings.join(" ") } : {}) };
   }
 
   async getMedia(previous: RemoteSession, signal?: AbortSignal): Promise<GeminiWebReply & { accountHash?: string; mediaKind?: GeminiMediaKind }> {
@@ -371,9 +398,9 @@ export class GeminiWebClient {
     throw new GeminiWebError("network_error", "Gemini media redirect limit exceeded");
   }
 
-  private async send(request: ChatRequest, previous?: RemoteSession, quotaKind?: GeminiMediaKind): Promise<GeminiWebReply & { accountHash?: string }> {
+  private async send(request: ChatRequest, previous?: RemoteSession, quotaKind?: GeminiMediaKind, ratio?: string): Promise<GeminiSelectedReply> {
     if (!request.message.trim()) throw new GeminiWebError("invalid_request", "Message must not be empty");
-    if (request.thinking) throw new GeminiWebError("unsupported_capability", "Gemini Web thinking mode is not enabled");
+    if (request.thinking) throw new GeminiWebError("unsupported_capability", "Use the explicit thinkingLevel selection for Gemini");
     if (previous) validateSession(previous);
     if (this.verificationBlocked) throw captchaError();
     return this.run(request.signal, async (context) => {
@@ -381,17 +408,31 @@ export class GeminiWebClient {
       if (previous && previous.accountHash !== current.accountHash) throw authenticationError();
       context.signal.throwIfAborted();
 
+      const modelName = request.model ?? (typeof previous?.model === "string" ? previous.model : undefined);
+      const levelName = request.thinkingLevel ?? (typeof previous?.thinkingLevel === "string" ? previous.thinkingLevel : undefined);
+      const level = resolveGeminiThinkingLevel(levelName, GEMINI_THINKING_LEVELS.map(({ preferenceValue, ...option }) => ({ ...option, wireValue: preferenceValue })));
+      const catalog = modelName !== undefined || levelName !== undefined ? await this.readModels(context, current) : undefined;
+      const model = catalog ? resolveGeminiModel(modelName, catalog.models) : undefined;
+      const selected = encodeGeminiSelection(model, level, randomUUID());
+      const uploaded = request.files?.length ? await uploadGeminiFiles(request.files, {
+        fetch: this.request, userAgent: this.userAgent, signal: context.signal,
+      }) : undefined;
+
       const prompt = request.systemPrompt ? `${request.systemPrompt}\n\n${request.message}` : request.message;
       const endpoint = new URL(STREAM_GENERATE_PATH, this.baseUrl);
       endpoint.search = new URLSearchParams({ bl: current.build, "f.sid": current.fsid, hl: "en",
         _reqid: String(this.nextRequestId()), rt: "c" }).toString();
       const payload = chatPayload(prompt, previous);
+      if (quotaKind) applyGeminiMediaControls(payload, quotaKind, ratio);
+      for (const [index, value] of Object.entries(selected.payloadPatch)) payload[Number(index)] = value;
+      if (uploaded) (payload[0] as unknown[])[3] = uploaded.map(file => [[file.uploadId], file.filename]);
       const form = new URLSearchParams({ at: current.at, "f.req": JSON.stringify([null, JSON.stringify(payload)]) });
       context.writeSent = true;
       const response = await this.request(endpoint, {
         method: "POST", redirect: "manual", cache: "no-store", signal: context.signal,
         headers: { Cookie: this.cookie, "User-Agent": this.userAgent, Origin: this.baseUrl.origin,
-          Referer: `${this.baseUrl.origin}/`, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8", "x-same-domain": "1" },
+          Referer: `${this.baseUrl.origin}/`, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8", "x-same-domain": "1",
+          ...selected.headers },
         body: form
       });
       if (!response.ok) {
@@ -431,7 +472,8 @@ export class GeminiWebClient {
       if (quotaKind && !finalMedia?.length && reply.completionStatus === 1 && reply.conversationId && reply.replyId && reply.candidateId) {
         finalMedia = [pendingGeminiMedia(quotaKind, reply)];
       }
-      return { ...reply, ...(finalMedia ? { media: finalMedia } : {}), accountHash: current.accountHash };
+      return { ...reply, ...(finalMedia ? { media: finalMedia } : {}), accountHash: current.accountHash,
+        ...(model ? { model: model.modelId } : {}), ...(level ? { thinkingLevel: level.id } : {}) };
     });
   }
 
@@ -439,6 +481,25 @@ export class GeminiWebClient {
     const result = this.requestId;
     this.requestId = this.requestId >= 2_147_000_000 ? 100000 : this.requestId + 100000;
     return result;
+  }
+
+  private async readModels(context: RequestContext, current: GeminiContext): Promise<GeminiModelCatalog> {
+    const url = new URL(BATCH_EXEC_PATH, this.baseUrl);
+    url.search = new URLSearchParams({ rpcids: MODELS_RPC, "source-path": "/app", bl: current.build,
+      "f.sid": current.fsid, hl: "en", _reqid: String(this.nextRequestId()), rt: "c" }).toString();
+    const response = await this.request(url, {
+      method: "POST", redirect: "manual", cache: "no-store", signal: context.signal,
+      headers: { Cookie: this.cookie, "User-Agent": this.userAgent, Origin: this.baseUrl.origin,
+        Referer: `${this.baseUrl.origin}/app`, "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8", "x-same-domain": "1" },
+      body: new URLSearchParams({ at: current.at, "f.req": JSON.stringify([[[MODELS_RPC, "[]", null, "generic"]]]) }),
+    });
+    if (!response.ok) await this.rejectResponse(response, context, false);
+    const type = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase();
+    if (!["application/json", "text/plain", "application/x-ndjson"].includes(type ?? "")) {
+      cancelResponseWithoutWaiting(response);
+      throw new GeminiWebError("invalid_response", "Gemini model discovery returned an unsupported response type");
+    }
+    return parseGeminiModels(parseGeminiRpc(await readText(response, context.signal, 256 * 1024, "model discovery"), MODELS_RPC));
   }
 
   private async readQuotaReset(context: RequestContext, current: GeminiContext): Promise<number | undefined> {
@@ -515,11 +576,10 @@ export class GeminiWebClient {
         throw new GeminiWebError(signal?.aborted ? "cancelled" : "timeout_error",
           signal?.aborted ? "Gemini Web request cancelled" : `Gemini Web request timed out (${this.timeout}ms)`, context.writeSent);
       }
-      if (error instanceof GeminiWebError) {
+      if (error instanceof ProviderError) {
         if (error.code === "captcha_required") this.verificationBlocked = true;
         throw error;
       }
-      if (error instanceof GeminiQuotaError) throw error;
       throw new GeminiWebError("network_error", "Gemini Web transport failed; no automatic retry was performed", context.writeSent);
     } finally {
       clearTimeout(timer);

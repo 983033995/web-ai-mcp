@@ -15,8 +15,10 @@ export interface MediaGenerationRequest {
   kind: "image" | "video";
   prompt: string;
   model?: string;
+  thinkingLevel?: string;
   style?: string;
   referenceImages?: FileInput[];
+  referenceVideos?: FileInput[];
   ratio?: string;
   durationSeconds?: number;
   signal?: AbortSignal;
@@ -38,6 +40,9 @@ export interface ChatRequest {
   message: string;
   systemPrompt?: string;
   thinking: boolean;
+  model?: string;
+  thinkingLevel?: string;
+  files?: FileInput[];
   signal?: AbortSignal;
 }
 

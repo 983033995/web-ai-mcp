@@ -249,7 +249,17 @@ test("only a definitive 1037 with no earlier candidate is typed as media quota e
   sameEntry[4] = [["rc_fixture", ["started"]]];
   const sameEntryQuota = ["wrb.fr", null, JSON.stringify(sameEntry), null, null, [null, null, [[null, [1037]]]]];
   await assert.rejects(parseGeminiStream(new Response(`)]}'\n${JSON.stringify([sameEntryQuota])}\ndi`).body!, signal(), { quotaKind: "video" }),
-    (error: any) => error instanceof GeminiQuotaError && error.kind === "video");
+    (error: any) => error.code === "stream_error" && error.sessionUncertain && !(error instanceof GeminiQuotaError));
+
+  const metadataOnly = Array(26).fill(null);
+  metadataOnly[1] = ["c_fixture", "r_fixture"];
+  const metadataFrame = JSON.stringify([["wrb.fr", null, JSON.stringify(metadataOnly)]]);
+  const sameFrameMetadata = ["wrb.fr", null, JSON.stringify(metadataOnly), null, null, [null, null, [[null, [1037]]]]];
+  for (const body of [`)]}'\n${metadataFrame}\n${JSON.stringify([quotaPart])}\ndi`,
+    `)]}'\n${JSON.stringify([sameFrameMetadata])}\ndi`]) {
+    await assert.rejects(parseGeminiStream(new Response(body).body!, signal(), { quotaKind: "image" }),
+      (error: any) => error.code === "stream_error" && error.sessionUncertain && !(error instanceof GeminiQuotaError));
+  }
 });
 
 test("Gemini parser enforces the bounded response size", async () => {

@@ -4,6 +4,7 @@ import { lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { ProviderError, type ChatRequest, type MediaGenerationRequest, type ProviderResult, type RemoteSession, type WebAIProvider } from "../../core/provider.js";
 import type { GeminiAccountConfig } from "./accounts.js";
+import type { GeminiModelCatalog } from "./selection.js";
 
 export type GeminiMediaKind = "image" | "video";
 
@@ -253,6 +254,14 @@ export class GeminiAccountProvider implements WebAIProvider {
     const account = this.accountFor(previous);
     const result = await this.getProvider(account).chat(request, previous);
     return this.bindSession(result, account);
+  }
+
+  async getModels(previous?: RemoteSession, signal?: AbortSignal): Promise<GeminiModelCatalog> {
+    const provider = this.getProvider(this.accountFor(previous)) as WebAIProvider & {
+      getModels?: (previous?: RemoteSession, signal?: AbortSignal) => Promise<GeminiModelCatalog>;
+    };
+    if (!provider.getModels) throw new ProviderError("Gemini model discovery is unavailable", "unsupported_capability");
+    return provider.getModels(previous, signal);
   }
 
   async generateMedia(request: MediaGenerationRequest, previous?: RemoteSession): Promise<ProviderResult> {

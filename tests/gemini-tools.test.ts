@@ -1,23 +1,27 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
+import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ProviderError, type ChatRequest, type RemoteSession, type WebAIProvider } from "../src/core/provider.js";
+import { ProviderError, type ChatRequest, type FileInput, type RemoteSession, type WebAIProvider } from "../src/core/provider.js";
 import { SessionStore } from "../src/core/session-store.js";
 import { registerGeminiTools } from "../src/tools/gemini.js";
+import type { GeminiModelCatalog } from "../src/providers/gemini/selection.js";
 
 const canary = "private-cookie-response-canary";
-async function fixture(sessions = new SessionStore()) {
-  const calls: Array<{ request: ChatRequest; previous?: RemoteSession }> = [];
-  const provider: WebAIProvider = {
-    id: "gemini", displayName: "fixture", capabilities: { chat: true, thinking: false, files: false, webSearch: false, sessionResume: true },
+type CapturedChatRequest = ChatRequest & { model?: string; thinkingLevel?: string; files?: FileInput[] };
+async function fixture(sessions = new SessionStore(), modelCatalog?: GeminiModelCatalog) {
+  const calls: Array<{ request: CapturedChatRequest; previous?: RemoteSession }> = [];
+  const modelCalls: Array<RemoteSession | undefined> = [];
+  const baseProvider = {
+    id: "gemini", displayName: "fixture", capabilities: { chat: true, thinking: true, files: true, webSearch: false, sessionResume: true },
     async initialize() {},
-    async chat(request, previous) {
-      calls.push({ request, previous });
+    async chat(request: ChatRequest, previous?: RemoteSession) {
+      calls.push({ request: request as CapturedChatRequest, previous });
       if (request.message === "rejected") throw new ProviderError(canary, "authentication_error");
       if (request.message === "ambiguous") throw new ProviderError(canary, "network_error", true);
       if (request.message === "unknown-error") throw new Error(canary);
@@ -27,6 +31,10 @@ async function fixture(sessions = new SessionStore()) {
         candidateId: "rc_fixture-hidden", accountHash: "hidden-account", turn: Number(previous?.turn ?? 0) + 1 } };
     },
   };
+  const provider = { ...baseProvider, ...(modelCatalog ? { async getModels(previous?: RemoteSession) {
+    modelCalls.push(previous);
+    return modelCatalog;
+  } } : {}) } as WebAIProvider;
   const server = new McpServer({ name: "fixture", version: "0" });
   registerGeminiTools(server, provider, sessions);
   const client = new Client({ name: "fixture", version: "0" });
@@ -36,7 +44,7 @@ async function fixture(sessions = new SessionStore()) {
     const result = await client.callTool({ name, arguments: args });
     return { error: Boolean(result.isError), text: (result.content as Array<{ text?: string }>).map(i => i.text ?? "").join("\n") };
   };
-  return { calls, call, sessions, client, server };
+  return { calls, modelCalls, call, sessions, client, server };
 }
 const key = (text: string) => text.match(/session_key: ([a-f0-9-]{36})/)![1];
 
@@ -53,8 +61,8 @@ test("Gemini default-model tools reject unsupported options and never expose pri
   const list = await f.call("gemini_sessions_list");
   assert.ok(list.text.includes(id)); assert.ok(!list.text.includes("hidden")); assert.ok(!list.text.includes("accountHash"));
   const count = f.calls.length;
-  for (const args of [{ message: "" }, { message: "x", thinking: true }, { message: "x", model: "Pro" },
-    { message: "x", show_reasoning: true }, { message: "x", file_paths: ["secret.txt"] },
+  for (const args of [{ message: "" }, { message: "x", thinking: true }, { message: "x", show_reasoning: true },
+    { message: "x", file_paths: "secret.txt" }, { message: "x", account_id: "primary" }, { message: "x", ratio: "16:9" },
     { message: "x", session_key: randomUUID() }, { message: "x", session_key: id, conversation_name: "conflict" },
     { message: "x", session_key: id, conversation_id: randomUUID() }, { message: "x", make_default: "true" }]) {
     assert.equal((await f.call("gemini_chat", args)).error, true);
@@ -63,6 +71,81 @@ test("Gemini default-model tools reject unsupported options and never expose pri
   assert.equal((await f.call("gemini_session_close", { session_key: id })).error, false);
   assert.equal((await f.call("gemini_chat", { message: "closed", session_key: id })).error, true);
   assert.equal(f.calls.length, count);
+});
+
+test("Gemini chat forwards account-validated selection and authorized file buffers without persisting file data", async t => {
+  const root = await mkdtemp(join(tmpdir(), "gemini-tools-files-"));
+  const allowed = join(root, "allowed");
+  await mkdir(allowed);
+  const inside = join(allowed, "notes.txt");
+  const outside = join(root, "outside.txt");
+  const fileText = "temporary fixture file content";
+  await writeFile(inside, fileText, { mode: 0o600 });
+  await writeFile(outside, "outside", { mode: 0o600 });
+  const priorAllowed = process.env.WEB_AI_ALLOWED_ROOTS;
+  process.env.WEB_AI_ALLOWED_ROOTS = allowed;
+  t.after(async () => {
+    if (priorAllowed === undefined) delete process.env.WEB_AI_ALLOWED_ROOTS;
+    else process.env.WEB_AI_ALLOWED_ROOTS = priorAllowed;
+    await rm(root, { recursive: true, force: true });
+  });
+  const f = await fixture(new SessionStore(0, Date.now, join(root, "sessions.json")));
+  t.after(async () => { await f.client.close(); await f.server.close(); });
+
+  const accepted = await f.call("gemini_chat", {
+    message: "fixture question", model: "Gemini 3 Pro", thinking_level: "high", file_paths: [inside],
+  });
+  assert.equal(accepted.error, false);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].request.model, "Gemini 3 Pro");
+  assert.equal(f.calls[0].request.thinkingLevel, "high");
+  assert.equal(f.calls[0].request.thinking, false);
+  assert.equal(f.calls[0].request.files?.length, 1);
+  assert.equal(f.calls[0].request.files?.[0].name, "notes.txt");
+  assert.equal(f.calls[0].request.files?.[0].buffer.toString("utf8"), fileText);
+
+  const invalidSession = await f.call("gemini_chat", { message: "must not read", session_key: randomUUID(), file_paths: [outside] });
+  assert.equal(invalidSession.error, true);
+  assert.match(invalidSession.text, /session_missing/);
+  assert.ok(!invalidSession.text.includes(outside));
+  assert.equal(f.calls.length, 1, "a missing session is rejected before file access or website calls");
+
+  const invalidFile = await f.call("gemini_chat", { message: "must not submit", conversation_name: "invalid-file", file_paths: [outside] });
+  assert.equal(invalidFile.error, true);
+  assert.match(invalidFile.text, /invalid_file/);
+  assert.ok(!invalidFile.text.includes(outside));
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.sessions.list().some(session => session.name === "invalid-file"), false);
+
+  const disk = await readFile(join(root, "sessions.json"), "utf8");
+  assert.ok(!disk.includes(fileText));
+  assert.ok(!disk.includes("notes.txt"));
+});
+
+test("Gemini model discovery is local-session bound, read-only, and omits website model IDs", async t => {
+  const modelId = "deadc0de00112233";
+  const catalog: GeminiModelCatalog = { accountStatus: 1000, capacity: 3, capacityField: 12, models: [{
+    modelId, modelName: "gemini-pro", displayName: "Gemini 3 Pro", description: "fixture description",
+    capacity: 3, capacityField: 12, modelNumber: 7, available: true, selectable: true,
+  }] };
+  const f = await fixture(new SessionStore(), catalog); t.after(async () => { await f.client.close(); await f.server.close(); });
+  assert.ok((await f.client.listTools()).tools.some(tool => tool.name === "gemini_models"));
+  const listed = await f.call("gemini_models");
+  assert.equal(listed.error, false);
+  assert.ok(listed.text.includes("Gemini 3 Pro"));
+  assert.ok(listed.text.includes("high"));
+  assert.ok(!listed.text.includes(modelId));
+  assert.deepEqual(f.modelCalls, [undefined]);
+
+  const session = await f.call("gemini_chat", { message: "create fixture session" });
+  const id = key(session.text);
+  const bound = await f.call("gemini_models", { session_key: id });
+  assert.equal(bound.error, false);
+  assert.equal(f.modelCalls.length, 2);
+  assert.equal(f.modelCalls[1]?.turn, 1);
+  const invalid = await f.call("gemini_models", { session_key: randomUUID() });
+  assert.equal(invalid.error, true);
+  assert.equal(f.modelCalls.length, 2, "invalid local session must not query model discovery");
 });
 
 test("Gemini known rejection preserves lineage; uncertain and incomplete replies block keys and names", async t => {

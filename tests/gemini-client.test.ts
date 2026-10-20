@@ -157,7 +157,7 @@ test("Gemini provider sends default-model chat and resumes a second turn with fr
   assert.equal(firstPayload.payload[0][0], "请讲一个短故事。");
   assert.deepEqual(firstPayload.payload[2], ["", "", "", null, null, null, null, null, null, ""]);
   assert.deepEqual(secondPayload.payload[2], ["c_fixture", "r_1", "rc_1", null, null, null, null, null, null, ""]);
-  assert.deepEqual(provider.capabilities, { chat: true, thinking: false, files: false, webSearch: false, sessionResume: true,
+  assert.deepEqual(provider.capabilities, { chat: true, thinking: true, files: true, webSearch: false, sessionResume: true,
     imageGeneration: true, videoGeneration: true });
 });
 
@@ -402,7 +402,7 @@ test("Gemini media generation uses one ordinary prompt and only reports verified
   assert.equal(calls.filter(call => call.url.pathname.endsWith("/StreamGenerate")).length, 1);
 
   const beforeInvalid = calls.length;
-  await assert.rejects(provider.generateMedia({ kind: "video", prompt: "clip", model: "named" }),
+  await assert.rejects(provider.generateMedia({ kind: "video", prompt: "clip", style: "named" }),
     (error: any) => error.code === "unsupported_capability");
   await assert.rejects(provider.generateMedia({ kind: "video", prompt: "clip", durationSeconds: 5 }),
     (error: any) => error.code === "unsupported_capability");

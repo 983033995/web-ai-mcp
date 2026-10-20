@@ -97,8 +97,15 @@ function applyFrame(frame: unknown, state: {
     if (kind !== "wrb.fr") throw malformed();
     const outerQuotaCode = nested(entry, [5, 2, 0, 1, 0]);
     if (outerQuotaCode !== undefined) {
+      let emptyQuotaPayload = false;
+      if (typeof entry[2] === "string" && Buffer.byteLength(entry[2], "utf8") <= MAX_FRAME_BYTES) {
+        try {
+          const value: unknown = JSON.parse(entry[2]);
+          emptyQuotaPayload = Array.isArray(value) && value.every(item => item === null);
+        } catch { /* An unverified error payload can never authorize account fallback. */ }
+      }
       if (outerQuotaCode === 1037 && quotaKind && !state.sawCandidate && !state.sawProgress && !state.content &&
-          state.media.length === 0) throw new GeminiQuotaError(quotaKind);
+          state.media.length === 0 && state.records === 0 && emptyQuotaPayload) throw new GeminiQuotaError(quotaKind);
       throw streamError();
     }
     let record: unknown;

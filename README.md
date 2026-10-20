@@ -36,7 +36,7 @@
 | 会话管理 | 已实现，列出或关闭本地会话映射 |
 | 网站搜索 | 未启用，`search_enabled` 固定为 `false` |
 | 豆包（v0.2.0 起） | 实验性快速/专家聊天、可见思考、TXT 分析、可选模型/参数的图片与视频生成、参考图及同会话续聊 |
-| Gemini（当前源码） | 实验性默认模型聊天、图片/视频生成、后台任务、媒体查询/下载、多账号额度冷却；不支持指定模型、思考开关、文件或参考图 |
+| Gemini（当前源码） | 实验性模型选择、三档思考等级、文件分析、图片/视频生成、原生比例、参考素材、后台任务和多账号额度冷却；参考视频生成仍为实验选项 |
 | 其他网站 | 未实现，不可调用 |
 | HTTP / 远程多用户 MCP | 未实现，仅支持本地 stdio |
 
@@ -105,7 +105,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
 
 > 调用 `webai_providers` 查看可用服务，再调用 `deepseek_chat`，询问“请用一句话介绍你能帮我做什么”。
 
-仅配置 DeepSeek 时应发现 9 个工具，仅豆包为 13 个，两者同时配置为 18 个。当前源码仅配置 Gemini 为 12 个，三者同时配置为 26 个。工具发现说明本地连接成功；收到实际答案才说明当前账号的网站请求成功。
+仅配置 DeepSeek 时应发现 9 个工具，仅豆包为 13 个，两者同时配置为 18 个。当前源码仅配置 Gemini 为 13 个，三者同时配置为 27 个。工具发现说明本地连接成功；收到实际答案才说明当前账号的网站请求成功。
 
 ## 接入 MCP 客户端
 
@@ -551,16 +551,23 @@ npx tsx scripts/probe-doubao.ts --env-file /private/path/.env --live --features
 
 | 工具 | 用途 |
 | --- | --- |
-| `gemini_chat` | 默认模型聊天；支持 `message`、名称/ID、`make_default`、后台任务；`system_prompt` 仅作为文字前缀 |
+| `gemini_chat` | 聊天；支持 `model`、`thinking_level`、`file_paths`、名称/ID、默认会话和后台任务；`system_prompt` 仅作为文字前缀 |
+| `gemini_models` | 只读查询账号当前可选模型和思考等级；可传 `session_key` 查询该会话绑定账号，不发送聊天 |
 | `gemini_sessions_list` | 只读列出本地 Gemini 会话与状态，不泄露网站标识 |
 | `gemini_session_close` | 删除本地映射，不删除网站历史、不撤回已提交消息 |
-| `gemini_generate_image` | `prompt` 生成图片；可选名称/ID、后台任务，不接受模型/比例/风格/参考图参数 |
-| `gemini_generate_video` | `prompt` 生成短视频；可选名称/ID、后台任务，不承诺未验证的时长/比例参数 |
+| `gemini_generate_image` | `prompt` 生成图片；可选模型、思考等级、原生比例和 `reference_image_paths` |
+| `gemini_generate_video` | 生成短视频；可选模型、思考等级、横/竖屏、参考图和实验性 `reference_video_paths`；不指定未验证的时长 |
 | `gemini_media_status` | 单次有界只读历史查询，确认已有生成结果；不提交、确认或重发生成 |
 | `gemini_download_media` | 用实际 `session_key` / `media_id` 保存已完成媒体，需 `WEB_AI_MEDIA_DIR`；不提供去水印 |
 | `gemini_accounts` | 只读显示账号顺序及图片/视频各自的冷却来源、到期时间和剩余秒数 |
 
-先读 `webai_usage`，再调用 `gemini_chat`，例如 `{"message":"帮我比较这两种方案。","conversation_name":"design-discussion"}`。聊天与两种生成均可加入 `"background":true` 和新的 UUID `request_id`，随后只读查询 `webai_job_status`。同样的 key 可在 MCP 正常重启后续聊；读取完后台结果后再重启。没有 `gemini_reasoner`；`thinking`、`show_reasoning`、`model`、文件和参考图参数会被拒绝。媒体完成必须有实际资源；文字承诺或只收到生成占位不能当作成功下载。
+先读 `webai_usage`，再调用 `gemini_models` 取得当前账号提供的准确模型名称。`gemini_chat` 示例：`{"message":"帮我比较这两种方案。","model":"3.1 Pro","thinking_level":"high","conversation_name":"design-discussion"}`。这里的模型名是实测示例，以账号实时列表为准。没有 `gemini_reasoner`、布尔 `thinking` 或隐藏思考文本输出；`thinking_level` 独立支持 `low`、`medium`、`high`。同一会话可显式切换模型/等级，省略时继承上轮选择；网站可能拒绝某些组合，拒绝后不自动换模型或重发。
+
+聊天的 `file_paths`、生成的 `reference_image_paths` / `reference_video_paths` 必须是 `WEB_AI_ALLOWED_ROOTS` 内的绝对路径。当前支持 UTF-8 TXT、PNG/JPEG/WebP 和 MP4；每次合计最多5个，每个10 MiB，总计20 MiB。图片参考只接受图片，视频参考只接受 MP4 且仅视频生成可用。MP4 上传分析已有实际 MCP 验证；上传作为生成参考不代表网站一定支持重绘、动作复刻或视频编辑，须以实际媒体结果为准。上传内容、文件名、上传标识都不写入会话存储；切到另一个账号时重新上传。
+
+`ratio` 使用网页原生比例字段：图片 `1:1`、`3:4`、`4:3`、`16:9`、`9:16`；视频 `16:9`、`9:16`。不是任意分辨率控制，实际资源或预览尺寸仍由网站决定。参考图生成示例：`{"prompt":"保留主体，背景改为浅绿色。","model":"3.1 Pro","thinking_level":"medium","ratio":"3:4","reference_image_paths":["/absolute/allowed/reference.jpg"]}`。
+
+聊天与两种生成均可加入 `"background":true` 和新的 UUID `request_id`，随后只读查询 `webai_job_status`。同样的 key 可在 MCP 正常重启后续聊；读取完后台结果后再重启。媒体完成必须有实际资源；文字承诺或只收到生成占位不能当作成功下载。
 
 每轮在发送消息前重新读取网站登录上下文。只持久化经过校验的网站会话/回复/候选标识、账号别名和账号哈希，不保存 Cookie、请求 token、邮箱、消息或回复。已有会话固定原账号；未知、关闭或不确定的 key 不会悄悄新建会话。验证码、一般 HTTP 429、网络异常或登录失效时停止，不自动换号或重发；本版本不自动轮换 Cookie。Chromium 设备绑定凭据可能限制 Cookie 的长期可用性，实际以本人账号为准。
 
@@ -678,7 +685,7 @@ npx -y @modelcontextprotocol/inspector --cli node dist/index.js \
   -e DEEPSEEK_USER_TOKEN=local-discovery-placeholder --method tools/list
 ```
 
-仅 DeepSeek 为 9 个工具，仅豆包为 13 个，两者同时配置为 18 个；当前源码仅 Gemini 为 12 个，三者为 26 个。工具发现成功不等于真实聊天成功。
+仅 DeepSeek 为 9 个工具，仅豆包为 13 个，两者同时配置为 18 个；当前源码仅 Gemini 为 13 个，三者为 27 个。工具发现成功不等于真实聊天成功。
 
 ### 可选：本人账号网站 smoke
 

@@ -77,10 +77,10 @@ try {
     return { result, error: Boolean(result.isError), text: result.content.filter(i => i.type === "text").map(i => i.text).join("\n") };
   };
   await connect();
-  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ["gemini_accounts", "gemini_chat", "gemini_download_media", "gemini_generate_image", "gemini_generate_video", "gemini_media_status", "gemini_session_close", "gemini_sessions_list", "webai_job_cancel", "webai_job_status", "webai_providers", "webai_usage"]);
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ["gemini_accounts", "gemini_chat", "gemini_download_media", "gemini_generate_image", "gemini_generate_video", "gemini_media_status", "gemini_models", "gemini_session_close", "gemini_sessions_list", "webai_job_cancel", "webai_job_status", "webai_providers", "webai_usage"]);
   const providers = JSON.parse((await call("webai_providers")).text);
   assert.equal(providers.active.length, 1); assert.equal(providers.active[0].id, "gemini");
-  assert.equal(providers.active[0].capabilities.thinking, false); assert.equal(providers.active[0].capabilities.files, false);
+  assert.equal(providers.active[0].capabilities.thinking, true); assert.equal(providers.active[0].capabilities.files, true);
   const first = await call("gemini_chat", { message: "first-canary", conversation_name: "fixture", make_default: true });
   assert.equal(first.error, false);
   const key = first.text.match(/session_key: ([a-f0-9-]{36})/)?.[1]; assert.ok(key);
@@ -99,7 +99,7 @@ try {
   const disk = await readFile(env.WEB_AI_SESSION_STORE_PATH, "utf8");
   for (const text of ["first-canary", "follow-canary", "__Secure-1PSID", "fixture-request-token", "fixture@example.invalid"]) assert.ok(!disk.includes(text));
   assert.equal((await call("gemini_chat", { message: "x", session_key: randomUUID() })).error, true);
-  assert.equal((await call("gemini_chat", { message: "x", session_key: key, model: "Pro" })).error, true);
+  assert.equal((await call("gemini_chat", { message: "x", session_key: key, thinking_level: "unrecognized" })).error, true);
   assert.equal(writes, 2);
   assert.equal((await call("gemini_chat", { message: "incomplete", session_key: key })).error, true);
   assert.equal((await call("gemini_chat", { message: "never-send", session_key: key })).error, true); assert.equal(writes, 3);
@@ -108,7 +108,7 @@ try {
   assert.equal((await call("gemini_session_close", { session_key: key })).error, false);
   assert.equal((await call("gemini_chat", { message: "closed", session_key: key })).error, true); assert.equal(writes, 3);
   if (failure) throw failure;
-  console.log(JSON.stringify({ mode: "Gemini local HTTP/stdio fixture; no website credentials", passed: ["Gemini-only twelve tools", "default chat", "background follow-up after process restart", "private secret-free lineage", "unsupported/unknown/closed selectors rejected before write", "incomplete streams remain blocked after restart"] }, null, 2));
+  console.log(JSON.stringify({ mode: "Gemini local HTTP/stdio fixture; no website credentials", passed: ["Gemini-only thirteen tools", "default chat", "background follow-up after process restart", "private secret-free lineage", "unsupported/unknown/closed selectors rejected before write", "incomplete streams remain blocked after restart"] }, null, 2));
 } catch {
   console.error(`[gemini smoke] failed at ${stage}; private details suppressed`); process.exitCode = 1;
 } finally {

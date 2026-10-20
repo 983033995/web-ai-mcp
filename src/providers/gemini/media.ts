@@ -7,6 +7,33 @@ const GOOGLE_IMAGE_HOST = "lh3.googleusercontent.com";
 const GOOGLE_FULL_IMAGE_HOST = "lh3.google.com";
 const MEDIA_DOWNLOAD_HOST = "contribution.usercontent.google.com";
 
+/** Captured from the website's image ratio picker; values are packed field 56.1. */
+export const GEMINI_IMAGE_RATIOS = Object.freeze({ "9:16": 59, "3:4": 60, "1:1": 61, "4:3": 62, "16:9": 63 });
+
+export function validateGeminiMediaRatio(kind: "image" | "video", ratio?: string): void {
+  if (ratio === undefined) return;
+  if (kind === "image" ? !Object.hasOwn(GEMINI_IMAGE_RATIOS, ratio) : ratio !== "16:9" && ratio !== "9:16") {
+    throw new GeminiWebError("invalid_request", "Unsupported Gemini media aspect ratio");
+  }
+}
+
+/** Website media tool and ratio controls, expressed in the legacy JSPB request. */
+export function applyGeminiMediaControls(payload: unknown[], kind: "image" | "video", ratio?: string): void {
+  validateGeminiMediaRatio(kind, ratio);
+  payload[49] = kind === "image" ? 14 : 11;
+  if (kind === "image") {
+    if (ratio) payload[55] = [[GEMINI_IMAGE_RATIOS[ratio as keyof typeof GEMINI_IMAGE_RATIOS]]];
+  } else {
+    payload[17] = [[1]];
+    if (ratio) {
+      const message = payload[0] as unknown[];
+      const options: unknown[] = Array(7).fill(null);
+      options[6] = [[null, null, null, ratio === "9:16" ? 2 : 1]];
+      message[9] = options;
+    }
+  }
+}
+
 export interface GeminiCandidateMedia {
   media: GeminiGeneratedMedia[];
   mediaPresent: boolean;

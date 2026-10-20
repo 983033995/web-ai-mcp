@@ -1,10 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ProviderError, type ProviderResult, type WebAIProvider } from "../core/provider.js";
+import { ProviderError, type FileInput, type ProviderResult, type RemoteSession, type WebAIProvider } from "../core/provider.js";
+import { readAllowedFiles } from "../core/files.js";
 import type { SessionStore } from "../core/session-store.js";
 import type { JobManager } from "../core/jobs.js";
 import { CHAT_DESCRIPTION, chatFields, dispatchChat, failureDetails } from "./guidance.js";
 import { GeminiQuotaError, type GeminiAccountStatus } from "../providers/gemini/cooldown.js";
+import { GEMINI_THINKING_LEVELS, type GeminiModelCatalog } from "../providers/gemini/selection.js";
 import { downloadMediaFile, validateMediaDirectory } from "../core/media-download.js";
 import { geminiMediaURL } from "../providers/gemini/media.js";
 
@@ -23,8 +25,10 @@ const providerMessages: Readonly<Record<string, string>> = {
   cancelled: "Gemini website operation cancelled; an accepted message cannot be withdrawn.",
   network_error: "Gemini website transport failed; no automatic retry was performed.",
   http_error: "Gemini website returned an HTTP error; no automatic retry was performed.",
-  invalid_request: "Invalid Gemini request. Check the tool's supported parameters; model selection, thinking and reference uploads are not enabled.",
+  invalid_request: "Invalid Gemini request. Check the model, thinking_level, ratio and reference-file parameters supported by this tool.",
   unsupported_capability: "This Gemini capability is not verified and is disabled.",
+  invalid_file: "Gemini file input was rejected. Check WEB_AI_ALLOWED_ROOTS and use supported TXT, PNG, JPEG, WebP or MP4 files within the configured size limits.",
+  file_upload_error: "Gemini file upload failed; no chat or generation request was sent. Correct the file or retry only after checking the upload state.",
   invalid_session: "Gemini website conversation state was not confirmed. Stop and check the website; do not create a replacement automatically.",
   session_state_error: "Gemini website conversation lineage was not confirmed.",
   invalid_response: "Gemini website returned an invalid or incomplete response.",
@@ -70,6 +74,27 @@ function answer(result: ProviderResult, key?: string) {
   return textResult(chunks.join("\n\n---\n\n"));
 }
 
+function supportedGeminiFilename(name: string, kind?: "image" | "video"): boolean {
+  if (kind === "image") return /\.(?:png|jpe?g|webp)$/i.test(name);
+  if (kind === "video") return /\.mp4$/i.test(name);
+  return /\.(?:txt|png|jpe?g|webp|mp4)$/i.test(name);
+}
+
+function safeModelCatalog(catalog: GeminiModelCatalog): unknown {
+  const opaqueId = (value: string) => /^[a-f0-9]{8,64}$/i.test(value) || /^gemini-[a-f0-9]{8,64}$/i.test(value);
+  return {
+    capacity: catalog.capacity,
+    models: catalog.models.flatMap(model => {
+      const modelName = opaqueId(model.modelName) ? undefined : model.modelName;
+      const displayName = opaqueId(model.displayName) ? undefined : model.displayName;
+      if (!modelName && !displayName) return [];
+      return [{ ...(modelName ? { model_name: modelName } : {}), ...(displayName ? { display_name: displayName } : {}),
+        capacity: model.capacity, available: model.available, selectable: model.selectable }];
+    }),
+    thinking_levels: GEMINI_THINKING_LEVELS.map(({ id, label }) => ({ id, label })),
+  };
+}
+
 export function registerGeminiTools(
   server: McpServer, provider: WebAIProvider, sessions: SessionStore, jobs?: JobManager
 ): void {
@@ -77,8 +102,12 @@ export function registerGeminiTools(
     (error instanceof GeminiQuotaError ? "\n" + JSON.stringify({ cooldown_until: error.resetAtMs ? new Date(error.resetAtMs).toISOString() : null }) : ""), true);
   const { show_reasoning: _showReasoning, ...fields } = chatFields;
   server.registerTool("gemini_chat", {
-    description: "Chat through your own Gemini WEBSITE using its default model (experimental HTTP). Use dedicated Gemini tools for image/video generation. No model selection, thinking toggle, search or files. system_prompt is a plain text prefix, not a website system role." + CHAT_DESCRIPTION,
-    inputSchema: z.object({ ...fields }).strict(),
+    description: "Chat through your own Gemini WEBSITE (experimental HTTP). Optional model and thinking_level are validated against the selected account; file_paths uploads supported files from WEB_AI_ALLOWED_ROOTS. No web search. system_prompt is a plain text prefix, not a website system role." + CHAT_DESCRIPTION,
+    inputSchema: z.object({ ...fields,
+      model: z.string().trim().min(1).max(160).optional(),
+      thinking_level: z.enum(["low", "medium", "high"]).optional(),
+      file_paths: z.array(z.string().min(1)).min(1).max(5).optional(),
+    }).strict(),
   }, async (args, extra) => dispatchChat(args, extra, jobs, "gemini_chat", async signal => {
     try {
       const requestedKey = args.conversation_id ?? args.session_key;
@@ -86,13 +115,27 @@ export function registerGeminiTools(
         const selected = requestedKey ?? (args.conversation_name ? undefined : sessions.defaultKey(provider.id));
         const previous = selected ? sessions.require(selected, provider.id)
           : args.conversation_name ? sessions.named(args.conversation_name, provider.id) : undefined;
+        let files: FileInput[] | undefined;
+        if (args.file_paths) {
+          try { files = await readAllowedFiles(args.file_paths, signal); }
+          catch { throw new ProviderError("Gemini file input rejected", signal.aborted ? "cancelled" : "invalid_file"); }
+          if (files.some(file => !supportedGeminiFilename(file.name))) {
+            throw new ProviderError("Gemini file input rejected", "invalid_file");
+          }
+        }
         const record = previous ?? sessions.put({
           providerId: provider.id, remote: {}, name: args.conversation_name,
           title: args.conversation_name ?? "Website conversation",
         });
         sessions.beginTurn(record.key);
         try {
-          const result = await provider.chat({ message: args.message, systemPrompt: args.system_prompt, thinking: false, signal }, previous?.remote);
+          const request = {
+            message: args.message, systemPrompt: args.system_prompt, thinking: false, signal,
+            ...(args.model ? { model: args.model } : {}),
+            ...(args.thinking_level ? { thinkingLevel: args.thinking_level } : {}),
+            ...(files ? { files } : {}),
+          };
+          const result = await provider.chat(request, previous?.remote);
           if (result.remoteSession) {
             sessions.update(record.key, result.remoteSession);
             if (args.make_default) sessions.selectDefault(record.key, provider.id);
@@ -133,6 +176,25 @@ export function registerGeminiTools(
     } catch (error) { return textResult(redact(error), true); }
   });
 
+  const modelProvider = provider as WebAIProvider & {
+    getModels?: (previous?: RemoteSession, signal?: AbortSignal) => Promise<GeminiModelCatalog>;
+  };
+  if (modelProvider.getModels) server.registerTool("gemini_models", {
+    description: "Read this Gemini account's available model names and safe thinking levels. Optional session_key binds discovery to that conversation's account; without it the first configured account is queried. No generation or session mutation.",
+    inputSchema: z.object({ session_key: z.string().uuid().optional() }).strict(),
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async ({ session_key }, extra) => {
+    try {
+      const catalog = session_key
+        ? await sessions.exclusive(session_key, async () => {
+          const record = sessions.require(session_key, provider.id);
+          return modelProvider.getModels!(record.remote, extra.signal);
+        })
+        : await modelProvider.getModels!(undefined, extra.signal);
+      return textResult(JSON.stringify(safeModelCatalog(catalog), null, 2));
+    } catch (error) { return errorResult(error); }
+  });
+
   const accounts = provider as WebAIProvider & { accountStatus?: () => Promise<GeminiAccountStatus[]> };
   if (accounts.accountStatus) server.registerTool("gemini_accounts", {
     description: "Read configured Gemini account order and independent image/video cooldowns. Local only; no login credentials, website requests or generation. Expiry restores eligibility, never replays tasks.",
@@ -150,23 +212,53 @@ export function registerGeminiTools(
   });
 
   if (provider.generateMedia) {
-    const fields = { prompt: z.string().trim().min(1).max(10000), session_key: z.string().uuid().optional(),
-      conversation_name: z.string().trim().min(1).max(80).optional(), background: chatFields.background, request_id: chatFields.request_id };
+    const fields = { prompt: z.string().trim().min(1).max(10000), model: z.string().trim().min(1).max(160).optional(),
+      thinking_level: z.enum(["low", "medium", "high"]).optional(),
+      reference_image_paths: z.array(z.string().min(1)).min(1).max(5).optional(),
+      session_key: z.string().uuid().optional(), conversation_name: z.string().trim().min(1).max(80).optional(),
+      background: chatFields.background, request_id: chatFields.request_id };
     for (const kind of ["image", "video"] as const) {
       if (!(kind === "image" ? provider.capabilities.imageGeneration : provider.capabilities.videoGeneration)) continue;
       const tool = "gemini_generate_" + kind;
+      const ratio = (kind === "video" ? z.enum(["16:9", "9:16"]) : z.enum(["1:1", "3:4", "4:3", "16:9", "9:16"]))
+        .optional().describe("Select the website's native output aspect-ratio control; inspect completed output dimensions.");
+      const inputSchema = kind === "video"
+        ? z.object({ ...fields, ratio, reference_video_paths: z.array(z.string().min(1)).min(1).max(5).optional() }).strict()
+        : z.object({ ...fields, ratio }).strict();
       server.registerTool(tool, {
-        description: `Generate a Gemini ${kind} using configured accounts in order. Only a definitive unaccepted generation-quota rejection can advance to another account; bound sessions never move. Use background=true with a fresh UUID request_id for long work, then webai_job_status. No model/ratio/duration/reference options. Prose is not completed media; query gemini_media_status.`,
-        inputSchema: z.object(fields).strict(),
+        description: `Generate a Gemini ${kind} using configured accounts in order. Optional model and thinking_level must be supported by the selected account. ${kind === "video" ? "reference_image_paths accepts PNG/JPEG/WebP and experimental reference_video_paths accepts MP4; the website may decline video-reference generation" : "reference_image_paths accepts PNG/JPEG/WebP"}; all files come from WEB_AI_ALLOWED_ROOTS, up to five combined. ratio selects the native website control. Only a definitive unaccepted generation-quota rejection can advance to another account; bound sessions never move. Use background=true with a fresh UUID request_id for long work, then webai_job_status. Prose is not completed media; query gemini_media_status.`,
+        inputSchema,
       }, async (args, extra) => dispatchChat({ ...args, message: args.prompt }, extra, jobs, tool, async signal => {
         try {
           return await sessions.exclusive(args.session_key ?? args.conversation_name ?? "gemini-generation", async () => {
             const previous = args.session_key ? sessions.require(args.session_key, provider.id)
               : args.conversation_name ? sessions.named(args.conversation_name, provider.id) : undefined;
+            const imagePaths = args.reference_image_paths ?? [];
+            const videoPaths = kind === "video" ? (args as typeof args & { reference_video_paths?: string[] }).reference_video_paths ?? [] : [];
+            if (imagePaths.length + videoPaths.length > 5) throw new ProviderError("Gemini media references rejected", "invalid_file");
+            let references: FileInput[] = [];
+            if (imagePaths.length + videoPaths.length > 0) {
+              try { references = await readAllowedFiles([...imagePaths, ...videoPaths], signal); }
+              catch { throw new ProviderError("Gemini media references rejected", signal.aborted ? "cancelled" : "invalid_file"); }
+              const images = references.slice(0, imagePaths.length);
+              const videos = references.slice(imagePaths.length);
+              if (images.some(file => !supportedGeminiFilename(file.name, "image")) ||
+                  videos.some(file => !supportedGeminiFilename(file.name, "video"))) {
+                throw new ProviderError("Gemini media references rejected", "invalid_file");
+              }
+            }
             const record = previous ?? sessions.put({ providerId: provider.id, remote: {}, name: args.conversation_name, title: "Website media conversation" });
             sessions.beginTurn(record.key);
             try {
-              const result = await provider.generateMedia!({ kind, prompt: args.prompt, signal }, previous?.remote);
+              const request = {
+                kind, prompt: args.prompt, signal,
+                ...(args.model ? { model: args.model } : {}),
+                ...(args.thinking_level ? { thinkingLevel: args.thinking_level } : {}),
+                ...(args.ratio ? { ratio: args.ratio } : {}),
+                ...(imagePaths.length ? { referenceImages: references.slice(0, imagePaths.length) } : {}),
+                ...(videoPaths.length ? { referenceVideos: references.slice(imagePaths.length) } : {}),
+              };
+              const result = await provider.generateMedia!(request, previous?.remote);
               if (result.remoteSession) sessions.update(record.key, result.remoteSession); else sessions.invalidate(record.key);
               return answer({ ...result, media: result.media ?? [] }, result.remoteSession ? record.key : undefined);
             } catch (error) {
