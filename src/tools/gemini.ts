@@ -5,7 +5,7 @@ import { readAllowedFiles } from "../core/files.js";
 import type { SessionStore } from "../core/session-store.js";
 import type { JobManager } from "../core/jobs.js";
 import { CHAT_DESCRIPTION, chatFields, dispatchChat, failureDetails } from "./guidance.js";
-import { GeminiQuotaError, type GeminiAccountStatus } from "../providers/gemini/cooldown.js";
+import { GeminiQuotaError, type GeminiAccountStatus, type GeminiMediaGenerationRequest } from "../providers/gemini/cooldown.js";
 import { GEMINI_THINKING_LEVELS, type GeminiModelCatalog } from "../providers/gemini/selection.js";
 import { downloadMediaFile, validateMediaDirectory } from "../core/media-download.js";
 import { geminiMediaURL } from "../providers/gemini/media.js";
@@ -41,7 +41,7 @@ const providerMessages: Readonly<Record<string, string>> = {
   download_error: "Gemini media could not be downloaded. Retry only the download; do not generate again.",
   media_not_ready: "The selected generated media is not ready; query gemini_media_status without resubmitting generation.",
   media_generation_failed: "Gemini marked this media reply complete with a website failure notice and no media. Stop polling this reply; the cause is not confirmed. No automatic replay or account switch was performed.",
-  media_quota_exhausted: "Gemini explicitly ended this video reply because its account has no video quota. The bound account cooldown was recorded. Stop polling this reply; it was not replayed on another account.",
+  media_quota_exhausted: "Gemini explicitly ended this video reply because its account has no video quota. Its cooldown was recorded. Status/recovery never generate; only an original new-generation operation can route to the next account. Bound sessions and failed reset lookups stop here.",
   history_not_found: "Gemini has not published this media turn in history yet. Query gemini_media_status later; do not resubmit generation.",
 };
 const sessionMessages = new Set([
@@ -228,7 +228,7 @@ export function registerGeminiTools(
         ? z.object({ ...fields, ratio, reference_video_paths: z.array(z.string().min(1)).min(1).max(5).optional() }).strict()
         : z.object({ ...fields, ratio }).strict();
       server.registerTool(tool, {
-        description: `Generate a Gemini ${kind} using configured accounts in order. Optional model and thinking_level must be supported by the selected account. ${kind === "video" ? "reference_image_paths accepts PNG/JPEG/WebP and experimental reference_video_paths accepts MP4; the website may decline video-reference generation" : "reference_image_paths accepts PNG/JPEG/WebP"}; all files come from WEB_AI_ALLOWED_ROOTS, up to five combined. ratio selects the native website control. Only a definitive unaccepted generation-quota rejection can advance to another account; bound sessions never move. Use background=true with a fresh UUID request_id for long work, then webai_job_status. Prose is not completed media; query gemini_media_status.`,
+        description: `Generate a Gemini ${kind} using configured accounts in order. Optional model and thinking_level must be supported by the selected account. ${kind === "video" ? "reference_image_paths accepts PNG/JPEG/WebP and experimental reference_video_paths accepts MP4; the website may decline video-reference generation" : "reference_image_paths accepts PNG/JPEG/WebP"}; all files come from WEB_AI_ALLOWED_ROOTS, up to five combined. ratio selects the native website control. The original operation follows pending results for up to ten minutes; a definitive quota rejection, including a completed quota notice without a resource, records cooldown and advances once per account with all references/options unchanged. Bound sessions never move; auth/CAPTCHA/general rate limits/uncertain outcomes stop. Use background=true with a fresh UUID request_id for long work, then webai_job_status. Status queries never generate. Prose is not completed media.`,
         inputSchema,
       }, async (args, extra) => dispatchChat({ ...args, message: args.prompt }, extra, jobs, tool, async signal => {
         try {
@@ -252,8 +252,9 @@ export function registerGeminiTools(
             const record = previous ?? sessions.put({ providerId: provider.id, remote: {}, name: args.conversation_name, title: "Website media conversation" });
             sessions.beginTurn(record.key);
             try {
-              const request = {
+              const request: GeminiMediaGenerationRequest = {
                 kind, prompt: args.prompt, signal,
+                onPendingSession: remote => { sessions.update(record.key, remote, "pending"); },
                 ...(args.model ? { model: args.model } : {}),
                 ...(args.thinking_level ? { thinkingLevel: args.thinking_level } : {}),
                 ...(args.ratio ? { ratio: args.ratio } : {}),

@@ -3,7 +3,7 @@ import { ProviderError, type ChatRequest, type GeneratedMedia, type MediaGenerat
 import { authenticationError, captchaError, configurationError, GeminiMediaQuotaError, GeminiMediaRecoveryError, GeminiWebError, httpError } from "./errors.js";
 import { GeminiQuotaError, type GeminiMediaKind } from "./cooldown.js";
 import { findGeminiMediaTurn, parseGeminiHistory } from "./history.js";
-import { applyGeminiMediaControls, pendingGeminiMedia, validateGeminiMediaRatio, verifiedGeminiMediaURL } from "./media.js";
+import { applyGeminiMediaControls, GEMINI_VIDEO_QUOTA_NOTICE, pendingGeminiMedia, validateGeminiMediaRatio, verifiedGeminiMediaURL } from "./media.js";
 import { parseGeminiStream, type GeminiWebReply } from "./stream.js";
 import { encodeGeminiSelection, GEMINI_THINKING_LEVELS, parseGeminiModels, resolveGeminiModel, resolveGeminiThinkingLevel, type GeminiModelCatalog } from "./selection.js";
 import { uploadGeminiFiles } from "./upload.js";
@@ -500,7 +500,12 @@ export class GeminiWebClient {
       let reply: GeminiWebReply;
       let recovered = false;
       try {
-        reply = await parseGeminiStream(response.body, context.signal, { quotaKind });
+        reply = await this.mediaQuotaContext(context, current, async () => {
+          const parsed = await parseGeminiStream(response.body!, context.signal, { quotaKind });
+          if (quotaKind === "video" && parsed.completionStatus === 2 && !parsed.media?.length &&
+              parsed.content.trim() === GEMINI_VIDEO_QUOTA_NOTICE) throw new GeminiMediaQuotaError("video");
+          return parsed;
+        });
       } catch (error) {
         if (error instanceof GeminiQuotaError) {
           const resetAtMs = await this.readQuotaReset(context, current);

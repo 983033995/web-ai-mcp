@@ -94,6 +94,8 @@ test("interrupted pending turns and invalidated names remain blocked across rest
   const store = new SessionStore(0, Date.now, path);
   const record = store.put({ providerId: "deepseek", remote: { sessionId: "s", lastMessageId: 1 }, name: "fixed", title: "test" });
   store.beginTurn(record.key);
+  store.update(record.key, { sessionId: "s", lastMessageId: 2 }, "pending");
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).sessions[0].remote.lastMessageId, 2);
   const restart = new SessionStore(0, Date.now, path);
   assert.throws(() => restart.require(record.key, "deepseek"), /invalidated/);
   assert.throws(() => restart.named("fixed", "deepseek"), /invalidated/);

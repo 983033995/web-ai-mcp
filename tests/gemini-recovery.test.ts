@@ -136,6 +136,26 @@ test("a quota notice in existing history reads the reset once, never submitting 
   assert.deepEqual({ historyReads, quotaReads, writes }, { historyReads: 1, quotaReads: 1, writes: 0 });
 });
 
+test("a complete generation stream can explicitly reject video quota without a history lookup", async () => {
+  let writes = 0, quotaReads = 0;
+  const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent: "fixture-browser", fetch: async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/app") return new Response(html);
+    if (url.pathname.endsWith("StreamGenerate")) {
+      writes++;
+      const c = candidate(2); c[1] = ["I can create more videos as soon as your limit resets. Check your usage in Settings.\n"];
+      c[12] = [{ "60": [[[null, ["opaque diagnostic"], null, 6]]] }];
+      const record: any[] = Array(26).fill(null); record[1] = [lineage.conversationId, lineage.replyId]; record[4] = [c];
+      return new Response(`)]}'\n${JSON.stringify([["wrb.fr", null, JSON.stringify(record)]])}\ndi\n`, { headers: { "content-type": "application/json" } });
+    }
+    assert.equal(url.searchParams.get("rpcids"), "aPya6c"); quotaReads++;
+    const frame = JSON.stringify([["wrb.fr", "aPya6c", JSON.stringify([false, 0, null]), null, null, null]]);
+    return new Response(`)]}'\n${frame}\ndi\n`, { headers: { "content-type": "application/json" } });
+  } });
+  await assert.rejects(client.generateMedia({ kind: "video", prompt: "A turning fan." }), (e: any) => e instanceof GeminiMediaQuotaError);
+  assert.deepEqual({ writes, quotaReads }, { writes: 1, quotaReads: 1 });
+});
+
 test("a failed or cancelled reset lookup preserves the confirmed media quota notice", async () => {
   for (const outcome of ["network", "rate_limit", "cancelled"] as const) {
     const abort = new AbortController();

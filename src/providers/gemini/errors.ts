@@ -14,10 +14,10 @@ export class GeminiMediaRecoveryError extends GeminiWebError {
   }
 }
 
-/** A quota notice in an existing candidate is recorded, but never authorizes replay. */
+/** Definitive completed quota rejection. Only the owning generation operation may route onward. */
 export class GeminiMediaQuotaError extends GeminiWebError {
   constructor(readonly kind: "image" | "video", readonly resetAtMs?: number) {
-    super("media_quota_exhausted", "The website reports quota exhaustion for this existing media reply; no replay or account switch was performed");
+    super("media_quota_exhausted", "The website explicitly ended this media reply without a resource because its generation quota is exhausted");
   }
 }
 

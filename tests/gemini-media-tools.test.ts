@@ -10,6 +10,7 @@ import { SessionStore } from "../src/core/session-store.js";
 import { JobManager } from "../src/core/jobs.js";
 import { ProviderError, type FileInput, type MediaGenerationRequest, type WebAIProvider, type RemoteSession } from "../src/core/provider.js";
 import { GeminiAccountProvider, GeminiCooldownStore, GeminiQuotaError } from "../src/providers/gemini/cooldown.js";
+import { GeminiMediaQuotaError } from "../src/providers/gemini/errors.js";
 import { registerGeminiTools } from "../src/tools/gemini.js";
 import { registerCommonTools } from "../src/tools/common.js";
 
@@ -30,6 +31,49 @@ function mp4Fixture(): Buffer {
   buffer.writeUInt32BE(16, 0); buffer.write("ftyp", 4, "ascii"); buffer.write("isom", 8, "ascii");
   return buffer;
 }
+
+test("one background generation owns late quota routing and persists pending lineage before read-only confirmation", async t => {
+  const directory = await mkdtemp(resolve(".validation-gemini-media-route-"));
+  const storePath = join(directory, "sessions.json"), sessions = new SessionStore(0, Date.now, storePath);
+  const writes: string[] = [];
+  const accounts = ["one", "two"].map(id => ({ id, cookie: "__Secure-1PSID=fixture-" + id, userAgent: "fixture" }));
+  const provider = new GeminiAccountProvider(accounts, account => ({
+    id: "gemini", displayName: "fixture", capabilities: { chat: true, thinking: false, files: false, webSearch: false,
+      sessionResume: true, videoGeneration: true },
+    async initialize() {}, async chat() { return { content: "fixture" }; },
+    async generateMedia() {
+      writes.push(account.id);
+      return { content: "pending", remoteSession: { conversationId: "c_" + account.id, replyId: "r_fixture", candidateId: "rc_fixture",
+        accountHash: digest(account.id), mediaKind: "video" }, media: [{ type: "video", status: "pending" }] };
+    },
+    async getMedia(previous) {
+      const saved = JSON.parse(await readFile(storePath, "utf8")).sessions[0];
+      assert.equal(saved.state, "pending"); assert.equal(saved.remote.accountId, account.id);
+      if (account.id === "one") throw new GeminiMediaQuotaError("video");
+      return { content: "done", remoteSession: previous, media: [{ type: "video", status: "completed", id: digest("video"), url: "https://fixture.test/video.mp4" }] };
+    },
+  }), new GeminiCooldownStore(join(directory, "cooldowns.json")), { timeoutMs: 2000, pollMs: 1 });
+  const jobs = new JobManager(); const server = new McpServer({ name: "fixture", version: "0" });
+  registerCommonTools(server, jobs); registerGeminiTools(server, provider, sessions, jobs);
+  const client = new Client({ name: "fixture", version: "0" }); const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(a); await client.connect(b);
+  t.after(async () => { await client.close(); await server.close(); await rm(directory, { recursive: true, force: true }); });
+  const args = { prompt: "A turning fan.", background: true, request_id: randomUUID() };
+  const ack = await client.callTool({ name: "gemini_generate_video", arguments: args });
+  const jobId = (ack._meta as any).web_ai_job.job_id;
+  const duplicate = await client.callTool({ name: "gemini_generate_video", arguments: args });
+  assert.equal((duplicate._meta as any).web_ai_job.job_id, jobId);
+  let result: any;
+  for (let i = 0; i < 100; i++) {
+    result = await client.callTool({ name: "webai_job_status", arguments: { job_id: jobId } });
+    if ((result._meta as any).web_ai_job.status !== "running") break;
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.equal((result._meta as any).web_ai_job.status, "completed");
+  assert.match(text(result), /account_id: two/); assert.deepEqual(writes, ["one", "two"]);
+  assert.equal(sessions.require(key(result), "gemini").remote.accountId, "two");
+  const disk = await readFile(storePath, "utf8"); assert.ok(!disk.includes(args.prompt)); assert.ok(!disk.includes("__Secure"));
+});
 
 test("Gemini media tools route quota-only, report cooldowns, pin accounts and query without generation", async t => {
   const directory = await mkdtemp(resolve(".validation-gemini-media-tools-"));
