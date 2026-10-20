@@ -6,6 +6,7 @@ const MAX_MEDIA_ITEMS = 10;
 const GOOGLE_IMAGE_HOST = "lh3.googleusercontent.com";
 const GOOGLE_FULL_IMAGE_HOST = "lh3.google.com";
 const MEDIA_DOWNLOAD_HOST = "contribution.usercontent.google.com";
+export const GEMINI_VIDEO_QUOTA_NOTICE = "I can create more videos as soon as your limit resets. Check your usage in Settings.";
 
 /** Captured from the website's image ratio picker; values are packed field 56.1. */
 export const GEMINI_IMAGE_RATIOS = Object.freeze({ "9:16": 59, "3:4": 60, "1:1": 61, "4:3": 62, "16:9": 63 });
@@ -58,7 +59,7 @@ export function isGeminiMediaFailure(candidate: unknown, extracted: GeminiCandid
 export function isGeminiMediaQuota(candidate: unknown, extracted: GeminiCandidateMedia, kind: "image" | "video"): boolean {
   const text = nested(candidate, [1, 0]);
   return kind === "video" && extracted.completionStatus === 2 && extracted.media.length === 0 &&
-    typeof text === "string" && text.trim() === "I can create more videos as soon as your limit resets. Check your usage in Settings.";
+    typeof text === "string" && text.trim() === GEMINI_VIDEO_QUOTA_NOTICE;
 }
 
 function nested(value: unknown, path: readonly number[]): unknown {

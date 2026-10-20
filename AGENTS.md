@@ -14,7 +14,7 @@ Build a safe, maintainable MCP server exposing **your own web AI conversations**
 
 ## Safety and data boundaries
 - Never store or log userToken, browser cookies, documents or messages in Git.
-- Never circumvent CAPTCHA/WAF/rate limiting. The user explicitly requested ordered own-account generation-quota routing on 2026-10-20: switch only after a definitive, unaccepted media quota rejection; never switch or replay on CAPTCHA, authentication failure, generic rate limits or uncertain acceptance.
+- Never circumvent CAPTCHA/WAF/rate limiting. The user explicitly requested and reaffirmed ordered own-account generation-quota routing on 2026-10-20: switch after a definitive media quota rejection, including an exact completed quota notice without a generated resource, without asking again. Only the original new-generation operation may route onward; independent status calls remain read-only and existing sessions stay pinned. Never switch or replay on CAPTCHA, authentication failure, generic rate limits or uncertain acceptance.
 - File uploads require WEB_AI_ALLOWED_ROOTS. Validate real paths against allowed roots before reading files.
 - On unknown/expired session_key, **return an error**, never quietly start a new conversation.
 - Preserve session/parent_message lineage atomically; guard concurrent calls to a session.

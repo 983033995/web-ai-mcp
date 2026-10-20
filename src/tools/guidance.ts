@@ -48,7 +48,7 @@ export function failureDetails(error: unknown): string {
     /missing or expired|Session missing/.test(value) ? "session_missing" : "request_failed";
   const action = code === "invalid_arguments" ? "Correct the selectors; send message plus either name or returned key, not both." :
     code === "media_generation_failed" ? "The website ended this reply without media. Stop polling it; inspect the input and website outcome. Do not automatically replay or switch accounts." :
-    code === "media_quota_exhausted" ? "Stop polling the exhausted reply. Read gemini_accounts for the original account cooldown; do not replay this request or switch its account automatically." :
+    code === "media_quota_exhausted" ? "Stop polling this rejected reply. Read gemini_accounts for cooldown state. Status/recovery never generate; only the original new-generation operation owns ordered quota fallback. Bound sessions or failed reset lookups stop without switching." :
     code === "session_missing" ? "Do not reuse this key. List sessions; after explicit user intent, start a new conversation without the closed/missing key." :
     code === "invalid_session" ? "Website session creation/lineage was not confirmed. Stop unchanged retries; inspect current website access/configuration and protocol." :
     code === "quota_exhausted" ? "All eligible accounts for this operation are cooling down, or this conversation is pinned to an exhausted account. Read gemini_accounts; do not resubmit until the corresponding cooldown expires." :

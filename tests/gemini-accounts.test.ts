@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { ProviderError, type MediaGenerationRequest, type ProviderResult, type RemoteSession, type WebAIProvider } from "../src/core/provider.js";
 import { loadGeminiAccounts, type GeminiAccountConfig } from "../src/providers/gemini/accounts.js";
-import { GeminiAccountProvider, GeminiCooldownStore, GeminiQuotaError } from "../src/providers/gemini/cooldown.js";
+import { GeminiAccountProvider, GeminiCooldownStore, GeminiQuotaError, type GeminiMediaGenerationRequest } from "../src/providers/gemini/cooldown.js";
 import { GeminiMediaQuotaError } from "../src/providers/gemini/errors.js";
 
 const account = (id: string, cooldownMinutes?: GeminiAccountConfig["cooldownMinutes"]): GeminiAccountConfig => ({
@@ -50,7 +50,7 @@ function accountProvider(
 
 const request = (kind: "image" | "video"): MediaGenerationRequest => ({ kind, prompt: "ordinary fixture prompt" });
 
-test("a quota notice in an existing reply records only the bound cooldown and never generates on another account", async t => {
+test("read-only quota lookup never generates, while the original new-generation operation can route onward", async t => {
   const root = await tempDir(t), calls: string[] = [];
   const store = new GeminiCooldownStore(join(root, "cooldowns.json"), () => 100000);
   const provider = new GeminiAccountProvider([account("first"), account("second")], config => ({
@@ -64,9 +64,74 @@ test("a quota notice in an existing reply records only the bound cooldown and ne
   assert.equal((await store.status("second", "video")).coolingDown, false);
   const freshStore = new GeminiCooldownStore(join(root, "fresh.json"), () => 100000);
   const generating = new GeminiAccountProvider([account("first"), account("second")], config => fakeProvider(config.id, calls,
-    () => { throw new GeminiMediaQuotaError("video", 200000); }), freshStore);
-  await assert.rejects(generating.generateMedia(request("video")), (e: any) => e instanceof GeminiMediaQuotaError);
-  assert.deepEqual(calls, ["read:first", "video:first:new"]);
+    () => { if (config.id === "first") throw new GeminiMediaQuotaError("video", 200000); return { content: "second result" }; }), freshStore);
+  assert.equal((await generating.generateMedia(request("video"))).content, "second result");
+  assert.deepEqual(calls, ["read:first", "video:first:new", "video:second:new"]);
+});
+
+test("the original generation waits for a definitive late quota then routes unchanged references in order", async t => {
+  const root = await tempDir(t), calls: string[] = [], captured: MediaGenerationRequest[] = [], progress: RemoteSession[] = [];
+  const store = new GeminiCooldownStore(join(root, "cooldowns.json"));
+  let firstReads = 0;
+  const provider = new GeminiAccountProvider([account("first"), account("second"), account("third")], config => ({
+    ...fakeProvider(config.id, calls),
+    async generateMedia(value, previous) {
+      assert.equal(previous, undefined); captured.push(value); calls.push("generate:" + config.id);
+      return { content: "pending", remoteSession: { conversationId: "conversation-" + config.id, mediaKind: "video" }, media: [{ type: "video", status: "pending" }] };
+    },
+    async getMedia(previous) {
+      calls.push("read:" + config.id);
+      if (config.id === "first" && ++firstReads === 2) throw new GeminiMediaQuotaError("video");
+      if (config.id === "first") return { content: "pending", remoteSession: previous, media: [{ type: "video", status: "pending" }] };
+      return { content: "done", remoteSession: previous, media: [{ type: "video", status: "completed", url: "https://fixture.test/result.mp4" }] };
+    },
+  }), store, { timeoutMs: 2000, pollMs: 1 });
+  const input: GeminiMediaGenerationRequest = { ...request("video"), ratio: "9:16", model: "selected", thinkingLevel: "high",
+    referenceImages: Array.from({ length: 5 }, (_, i) => ({ name: `${i}.png`, buffer: Buffer.from(`fixture-${i}`) })),
+    onPendingSession: session => { progress.push(session); } };
+  const result = await provider.generateMedia(input);
+  assert.equal(result.remoteSession?.accountId, "second"); assert.equal(result.media?.[0].status, "completed");
+  assert.deepEqual(calls, ["generate:first", "read:first", "read:first", "generate:second", "read:second"]);
+  assert.equal(captured.length, 2); assert.equal(captured[0], input); assert.equal(captured[1], input);
+  assert.deepEqual(progress.map(s => s.accountId), ["first", "first", "second"]);
+  assert.equal((await store.status("first", "video")).coolingDown, true);
+  assert.equal((await store.status("first", "image")).coolingDown, false);
+  assert.equal((await store.status("second", "video")).coolingDown, false);
+});
+
+test("pending confirmation errors, cancellation and bound conversations never trigger generation on another account", async t => {
+  const root = await tempDir(t);
+  for (const code of ["authentication_error", "captcha_required", "rate_limit_error", "network_error", "media_generation_failed", "cancelled"]) {
+    const calls: string[] = [];
+    const provider = new GeminiAccountProvider([account("first"), account("second")], config => ({
+      ...fakeProvider(config.id, calls, () => ({ content: "pending", remoteSession: { mediaKind: "video" }, media: [{ type: "video", status: "pending" }] })),
+      async getMedia() { throw new ProviderError("fixture", code); },
+    }), new GeminiCooldownStore(join(root, code + ".json")), { timeoutMs: 2000, pollMs: 1 });
+    await assert.rejects(provider.generateMedia(request("video")), (e: any) => e.code === code && e.sessionUncertain);
+    assert.deepEqual(calls, ["video:first:new"]);
+  }
+  const calls: string[] = [];
+  const provider = new GeminiAccountProvider([account("first"), account("second")], config => fakeProvider(config.id, calls,
+    () => { throw new GeminiMediaQuotaError("video"); }), new GeminiCooldownStore(join(root, "pinned.json")));
+  await assert.rejects(provider.generateMedia(request("video"), { accountId: "first" }), (e: any) => e instanceof GeminiMediaQuotaError);
+  assert.deepEqual(calls, ["video:first:first"]);
+});
+
+test("the bounded wait returns the original pending handle and quota reset lookup errors prevent fallback", async t => {
+  const root = await tempDir(t), calls: string[] = [];
+  const provider = new GeminiAccountProvider([account("first"), account("second")], config => ({
+    ...fakeProvider(config.id, calls, () => ({ content: "pending", remoteSession: { mediaKind: "video" }, media: [{ type: "video", status: "pending" }] })),
+    async getMedia(previous) { return { content: "pending", remoteSession: previous, media: [{ type: "video", status: "pending" }] }; },
+  }), new GeminiCooldownStore(join(root, "bounded.json")), { timeoutMs: 10, pollMs: 1 });
+  const result = await provider.generateMedia(request("video"));
+  assert.equal(result.remoteSession?.accountId, "first"); assert.ok(!calls.some(c => c.includes("second")));
+  assert.equal(result.media?.[0].status, "pending"); assert.match(result.warning!, /bounded generation wait/);
+  assert.equal(result.remoteSession?.mediaReadOnly, true);
+  const failing = new GeminiAccountProvider([account("first"), account("second")], config => fakeProvider(config.id, calls,
+    () => { const error = new GeminiMediaQuotaError("video"); error.cause = new ProviderError("fixture", "captcha_required"); throw error; }),
+    new GeminiCooldownStore(join(root, "reset-error.json")));
+  await assert.rejects(failing.generateMedia(request("video")), (e: any) => e instanceof GeminiMediaQuotaError);
+  assert.ok(!calls.some(c => c.includes("second")));
 });
 
 test("loads ordered accounts from a private file and does not expose credentials in errors", async t => {

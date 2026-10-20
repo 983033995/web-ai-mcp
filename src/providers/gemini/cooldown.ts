@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { lstat, mkdir, open, rename, unlink } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { dirname, isAbsolute } from "node:path";
 import { ProviderError, type ChatRequest, type MediaGenerationRequest, type ProviderResult, type RemoteSession, type WebAIProvider } from "../../core/provider.js";
 import type { GeminiAccountConfig } from "./accounts.js";
@@ -231,6 +232,11 @@ export interface GeminiAccountStatus {
   cooldown: Record<GeminiMediaKind, GeminiCooldownStatus>;
 }
 
+export interface GeminiMediaGenerationRequest extends MediaGenerationRequest {
+  /** Persist validated pending lineage while the original generation operation owns follow-up. */
+  onPendingSession?: (session: RemoteSession) => void;
+}
+
 /** Multi-account adapter. Only a typed, definitive quota rejection may advance the ordered media route. */
 export class GeminiAccountProvider implements WebAIProvider {
   readonly id = "gemini";
@@ -242,8 +248,11 @@ export class GeminiAccountProvider implements WebAIProvider {
     private readonly accounts: readonly GeminiAccountConfig[],
     private readonly createProvider: (account: GeminiAccountConfig) => WebAIProvider,
     private readonly cooldowns: GeminiCooldownStore,
+    private readonly mediaWait: { timeoutMs: number; pollMs: number } = { timeoutMs: 600_000, pollMs: 10_000 },
   ) {
     if (!accounts.length) throw new ProviderError("Gemini account configuration is empty", "configuration_error");
+    if (!Number.isSafeInteger(mediaWait.timeoutMs) || mediaWait.timeoutMs <= 0 || mediaWait.timeoutMs > 600_000 ||
+        !Number.isSafeInteger(mediaWait.pollMs) || mediaWait.pollMs <= 0) throw new ProviderError("Invalid Gemini media wait", "configuration_error");
     this.capabilities = this.getProvider(accounts[0]).capabilities;
   }
 
@@ -265,10 +274,12 @@ export class GeminiAccountProvider implements WebAIProvider {
     return provider.getModels(previous, signal);
   }
 
-  async generateMedia(request: MediaGenerationRequest, previous?: RemoteSession): Promise<ProviderResult> {
+  async generateMedia(request: GeminiMediaGenerationRequest, previous?: RemoteSession): Promise<ProviderResult> {
     const pinned = previous ? this.accountFor(previous) : undefined;
     const candidates = pinned ? [pinned] : this.accounts;
+    const deadline = Date.now() + this.mediaWait.timeoutMs;
     for (const account of candidates) {
+      request.signal?.throwIfAborted();
       const cooldown = await this.cooldowns.status(account.id, request.kind);
       if (cooldown.coolingDown) {
         if (pinned) throw new GeminiQuotaError(request.kind, cooldown.blockedUntilMs ?? undefined);
@@ -277,11 +288,13 @@ export class GeminiAccountProvider implements WebAIProvider {
       const provider = this.getProvider(account);
       if (!provider.generateMedia) throw new ProviderError("Gemini media generation is unavailable", "unsupported_capability");
       try {
-        return this.bindSession(await provider.generateMedia(request, previous), account);
+        const result = await provider.generateMedia(request, previous);
+        return this.bindSession(await this.awaitMedia(provider, account, request, result, deadline), account);
       } catch (error) {
         if (error instanceof GeminiMediaQuotaError) {
           await this.cooldowns.recordQuota(account.id, error.kind, error.resetAtMs, account.cooldownMinutes?.[error.kind]);
-          throw error;
+          if (pinned || error.kind !== request.kind || error.sessionUncertain || error.cause || request.signal?.aborted || Date.now() >= deadline) throw error;
+          continue;
         }
         if (!(error instanceof GeminiQuotaError) || error.kind !== request.kind || error.sessionUncertain) throw error;
         await this.cooldowns.recordQuota(account.id, request.kind, error.resetAtMs, account.cooldownMinutes?.[request.kind]);
@@ -290,6 +303,31 @@ export class GeminiAccountProvider implements WebAIProvider {
     }
     const earliest = await this.earliestCooldown(candidates, request.kind);
     throw new GeminiQuotaError(request.kind, earliest);
+  }
+
+  private async awaitMedia(provider: WebAIProvider, account: GeminiAccountConfig, request: GeminiMediaGenerationRequest,
+    initial: ProviderResult, deadline: number): Promise<ProviderResult> {
+    let result = this.bindSession(initial, account);
+    while (result.remoteSession && result.media?.length &&
+        result.media.every(item => item.status === "pending" && !item.url && !item.resourceId) && provider.getMedia) {
+      request.onPendingSession?.(result.remoteSession);
+      if (Date.now() >= deadline) return { ...result, remoteSession: { ...result.remoteSession, mediaReadOnly: true },
+        warning: [result.warning, "The bounded generation wait ended with media still pending. Query this existing key; no further generation or account switch was scheduled."].filter(Boolean).join(" ") };
+      try {
+        const refreshed = await provider.getMedia(result.remoteSession, request.signal);
+        result = this.bindSession(refreshed, account);
+        if (!result.media?.length || result.media.some(item => item.status !== "pending" || item.url || item.resourceId)) return result;
+      } catch (error) {
+        if (error instanceof GeminiMediaQuotaError) throw error;
+        if (!(error instanceof ProviderError) || error.code !== "history_not_found") {
+          throw new ProviderError("Gemini media confirmation failed; the pending lineage was preserved and no account switch was performed",
+            error instanceof ProviderError ? error.code : request.signal?.aborted ? "cancelled" : "network_error", true);
+        }
+      }
+      try { await delay(Math.min(this.mediaWait.pollMs, Math.max(1, deadline - Date.now())), undefined, { signal: request.signal }); }
+      catch { throw new ProviderError("Gemini media wait cancelled; no account switch was performed", "cancelled", true); }
+    }
+    return result;
   }
 
   async getMedia(previous: RemoteSession, signal?: AbortSignal): Promise<ProviderResult> {
