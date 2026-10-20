@@ -358,7 +358,7 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 
 图片 `ratio` 可选 `auto`（默认）、`1:1`、`2:3`、`3:2`、`3:4`、`4:3`、`9:16`、`16:9`。`style` 可选水彩画、油画、动漫、3D渲染等网页列出的 32 种风格；完整可选值由工具参数 schema 提供，省略表示不指定风格。
 
-`reference_image_paths` 接受 1–5 个本地 PNG、JPEG 或 WebP 的绝对路径，必须位于 `WEB_AI_ALLOWED_ROOTS` 内；每张不超过 10 MiB、合计不超过 20 MiB。参考图实际上传到本人豆包账号，按图片授权、CRC 和提交确认后引用；不接受任意远程地址或符号链接逃逸路径。例如调用 `doubao_generate_image`：
+`doubao_generate_image` 和 `doubao_generate_video` 的 `reference_image_paths` 接受 1–5 个本地 PNG、JPEG 或 WebP 的绝对路径，必须位于 `WEB_AI_ALLOWED_ROOTS` 内；每张不超过 10 MiB、合计不超过 20 MiB。参考图实际上传到本人豆包账号，按图片授权、CRC 和提交确认后引用；不接受任意远程地址或符号链接逃逸路径。视频参考复用同一上传链路，模型是否按参考完成创作须验收实际结果；它不提供首尾帧、视频参考或分辨率选择参数。例如调用 `doubao_generate_image`：
 
 ```json
 {

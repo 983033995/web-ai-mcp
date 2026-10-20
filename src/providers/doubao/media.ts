@@ -39,7 +39,7 @@ export function creationAbility(request: MediaGenerationRequest) {
   if (!["image", "video"].includes(request.kind) || !request.prompt.trim() || request.prompt.length > 10000 || !ratios.includes(ratio) ||
       (request.kind === "image" ? !(DOUBAO_IMAGE_MODELS as readonly string[]).includes(model) : !videoModel) ||
       (request.style !== undefined && (request.kind !== "image" || !Object.hasOwn(DOUBAO_IMAGE_STYLES, request.style))) ||
-      (request.referenceImages !== undefined && (request.kind !== "image" || !Array.isArray(request.referenceImages) ||
+      (request.referenceImages !== undefined && (!Array.isArray(request.referenceImages) ||
         !request.referenceImages.length || request.referenceImages.length > 5 ||
         request.referenceImages.reduce((size, file) => size + (file?.buffer?.length ?? Infinity), 0) > 20 * 1024 * 1024)) ||
       (request.kind === "image" && request.durationSeconds !== undefined) ||
