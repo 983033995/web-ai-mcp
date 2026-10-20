@@ -198,19 +198,22 @@ test("cleans its partial file after a stream failure and never exposes the upstr
   assert.deepEqual(await readdir(directory), []);
 });
 
-test("cancels an in-flight stream and removes its temporary file", async (t) => {
+test("cancels an in-flight stream and removes its temporary file", { timeout: 2000 }, async (t) => {
   const directory = await fixture(t);
   const controller = new AbortController();
   let canceled = false;
+  let onRead!: () => void;
+  const startedReading = new Promise<void>(resolve => { onRead = resolve; });
   const pendingReader = {
-    read: () => new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}),
+    read: () => { onRead(); return new Promise<ReadableStreamReadResult<Uint8Array>>(() => {}); },
     cancel: () => { canceled = true; return new Promise<void>(() => {}); },
     releaseLock() {},
   };
   const responseBody = { getReader: () => pendingReader } as unknown as ReadableStream<Uint8Array>;
   const fakeResponse = { ok: true, body: responseBody, headers: new Headers({ "content-type": "image/png" }) } as Response;
   const pending = downloadMediaFile(imageUrl, "image", controller.signal, { directory, fetch: async () => fakeResponse });
-  setTimeout(() => controller.abort(), 10);
+  await startedReading;
+  controller.abort();
   const completed = await Promise.race([
     rejectsCode(pending, "cancelled").then(() => true),
     new Promise<boolean>(resolve => setTimeout(() => resolve(false), 250)),
