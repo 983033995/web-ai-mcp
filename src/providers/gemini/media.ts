@@ -56,8 +56,9 @@ export function isGeminiMediaFailure(candidate: unknown, extracted: GeminiCandid
 }
 
 export function isGeminiMediaQuota(candidate: unknown, extracted: GeminiCandidateMedia, kind: "image" | "video"): boolean {
+  const text = nested(candidate, [1, 0]);
   return kind === "video" && extracted.completionStatus === 2 && extracted.media.length === 0 &&
-    nested(candidate, [1, 0]) === "I can create more videos as soon as your limit resets. Check your usage in Settings.";
+    typeof text === "string" && text.trim() === "I can create more videos as soon as your limit resets. Check your usage in Settings.";
 }
 
 function nested(value: unknown, path: readonly number[]): unknown {

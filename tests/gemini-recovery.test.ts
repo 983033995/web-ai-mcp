@@ -136,6 +136,33 @@ test("a quota notice in existing history reads the reset once, never submitting 
   assert.deepEqual({ historyReads, quotaReads, writes }, { historyReads: 1, quotaReads: 1, writes: 0 });
 });
 
+test("a failed or cancelled reset lookup preserves the confirmed media quota notice", async () => {
+  for (const outcome of ["network", "rate_limit", "cancelled"] as const) {
+    const abort = new AbortController();
+    let historyReads = 0, quotaReads = 0;
+    const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent: "fixture-browser", fetch: async input => {
+      const url = new URL(String(input));
+      if (url.pathname === "/app") return new Response(html);
+      assert.ok(url.pathname.endsWith("batchexecute"), "must not generate");
+      if (url.searchParams.get("rpcids") === "hNvQHb") {
+        historyReads++;
+        const c = candidate(2); c[1] = ["I can create more videos as soon as your limit resets. Check your usage in Settings."];
+        c[12] = [{ "60": [[[null, ["opaque diagnostic"], null, 6]]] }];
+        const turn: any[] = []; turn[0] = [null, lineage.replyId]; turn[3] = [[c]];
+        const frame = JSON.stringify([["wrb.fr", "hNvQHb", JSON.stringify([[turn]]), null, null, null]]);
+        return new Response(`)]}'\n${frame}\ndi\n`, { headers: { "content-type": "application/json" } });
+      }
+      assert.equal(url.searchParams.get("rpcids"), "aPya6c"); quotaReads++;
+      if (outcome === "rate_limit") return new Response("fixture", { status: 429 });
+      if (outcome === "cancelled") abort.abort(new Error("fixture cancellation"));
+      throw new Error("fixture reset unavailable");
+    } });
+    await assert.rejects(client.getMedia({ ...lineage, accountHash: createHash("sha256").update("fixture@example.test").digest("hex"), mediaKind: "video" }, abort.signal),
+      (e: any) => e instanceof GeminiMediaQuotaError && e.resetAtMs === undefined && e.cause instanceof Error);
+    assert.deepEqual({ historyReads, quotaReads }, { historyReads: 1, quotaReads: 1 });
+  }
+});
+
 test("owner URL recovery uses one history lookup, validates scope and preserves media-only state through status", async t => {
   const f = fixture(); const provider = new GeminiWebProvider(cookie, f.client);
   const directory = await mkdtemp(resolve(".validation-gemini-recovery-"));

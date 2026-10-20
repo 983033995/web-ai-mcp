@@ -391,7 +391,14 @@ export class GeminiWebClient {
     try { return await operation(); }
     catch (error) {
       if (!(error instanceof GeminiMediaQuotaError)) throw error;
-      const reset = await this.readQuotaReset(context, current);
+      let reset: number | undefined;
+      try { reset = await this.readQuotaReset(context, current); }
+      catch (resetError) {
+        // An advisory reset lookup cannot erase the already confirmed quota notice.
+        error.cause = resetError;
+        if (resetError instanceof ProviderError && resetError.code === "captcha_required") this.verificationBlocked = true;
+        throw error;
+      }
       throw new GeminiMediaQuotaError(error.kind, reset);
     }
   }
@@ -645,6 +652,7 @@ export class GeminiWebClient {
       controller.signal.throwIfAborted();
       return await operation(context);
     } catch (error) {
+      if (error instanceof GeminiMediaQuotaError) throw error;
       if (controller.signal.aborted) {
         throw new GeminiWebError(signal?.aborted ? "cancelled" : "timeout_error",
           signal?.aborted ? "Gemini Web request cancelled" : `Gemini Web request timed out (${this.timeout}ms)`, context.writeSent);

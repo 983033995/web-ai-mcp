@@ -177,6 +177,9 @@ test("a completed video quota card is terminal and never the pre-acceptance fail
   const check = (e: any) => e instanceof GeminiMediaQuotaError && e.kind === "video" && !(e instanceof GeminiQuotaError) && !e.message.includes("private");
   await assert.rejects(parseGeminiHistory(historyResponse(c).body!, new AbortController().signal, { ...lineage, mediaKind: "video" }), check);
   await assert.rejects(findGeminiMediaTurn(historyResponse(c).body!, new AbortController().signal, "video"), check);
+  c[1] = ["\nI can create more videos as soon as your limit resets. Check your usage in Settings. \n"];
+  await assert.rejects(parseGeminiHistory(historyResponse(c).body!, new AbortController().signal, { ...lineage, mediaKind: "video" }), check);
+  await assert.rejects(findGeminiMediaTurn(historyResponse(c).body!, new AbortController().signal, "video"), check);
   c[8] = [1];
   const pending = await parseGeminiHistory(historyResponse(c).body!, new AbortController().signal, { ...lineage, mediaKind: "video" });
   assert.equal(pending.media[0].status, "pending");
