@@ -1,0 +1,279 @@
+import assert from "node:assert/strict";
+import { chmod, lstat, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { ProviderError, type MediaGenerationRequest, type ProviderResult, type RemoteSession, type WebAIProvider } from "../src/core/provider.js";
+import { loadGeminiAccounts, type GeminiAccountConfig } from "../src/providers/gemini/accounts.js";
+import { GeminiAccountProvider, GeminiCooldownStore, GeminiQuotaError } from "../src/providers/gemini/cooldown.js";
+
+const account = (id: string, cooldownMinutes?: GeminiAccountConfig["cooldownMinutes"]): GeminiAccountConfig => ({
+  id, cookie: `__Secure-1PSID=${id}-secret`, userAgent: "Fixture Browser/1.0", ...(cooldownMinutes ? { cooldownMinutes } : {}),
+});
+
+async function tempDir(t: test.TestContext): Promise<string> {
+  const path = await mkdtemp(join(tmpdir(), "gemini-account-test-"));
+  t.after(async () => rm(path, { recursive: true, force: true }));
+  return path;
+}
+
+function fakeProvider(id: string, calls: string[], script: (request: MediaGenerationRequest, previous?: RemoteSession) => Promise<ProviderResult> | ProviderResult = () => ({ content: "ok" }), chatFailure?: Error): WebAIProvider {
+  return {
+    id: "gemini", displayName: `fake-${id}`,
+    capabilities: { chat: true, thinking: false, files: false, webSearch: false, sessionResume: true, imageGeneration: true, videoGeneration: true },
+    async initialize() {},
+    async chat(_request, previous) {
+      calls.push(`chat:${id}:${String(previous?.accountId ?? "new")}`);
+      if (chatFailure) throw chatFailure;
+      return { content: `chat:${id}`, remoteSession: previous ?? { conversationId: `conversation-${id}`, accountHash: `${id}-hash` } };
+    },
+    async generateMedia(request, previous) {
+      calls.push(`${request.kind}:${id}:${String(previous?.accountId ?? "new")}`);
+      return script(request, previous);
+    },
+    async getMedia(previous) {
+      calls.push(`status:${id}:${String(previous.accountId)}`);
+      return { content: "status", remoteSession: previous };
+    },
+  };
+}
+
+function accountProvider(
+  configs: GeminiAccountConfig[],
+  cooldowns: GeminiCooldownStore,
+  calls: string[],
+  scripts: Record<string, (request: MediaGenerationRequest, previous?: RemoteSession) => Promise<ProviderResult> | ProviderResult> = {},
+): GeminiAccountProvider {
+  return new GeminiAccountProvider(configs, config => fakeProvider(config.id, calls, scripts[config.id]), cooldowns);
+}
+
+const request = (kind: "image" | "video"): MediaGenerationRequest => ({ kind, prompt: "ordinary fixture prompt" });
+
+test("loads ordered accounts from a private file and does not expose credentials in errors", async t => {
+  const root = await tempDir(t);
+  const path = join(root, "gemini-accounts.json");
+  await writeFile(path, JSON.stringify({ accounts: [account("first", { image: 30 }), account("second")] }), { mode: 0o600 });
+  await chmod(path, 0o600);
+  const loaded = await loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: path });
+  assert.deepEqual(loaded.map(item => item.id), ["first", "second"]);
+  assert.equal(loaded[0].cooldownMinutes?.image, 30);
+  assert.equal(loaded[0].cookie, "__Secure-1PSID=first-secret");
+
+  await assert.rejects(loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: path, GEMINI_COOKIE: "__Secure-1PSID=secret-canary" }), error => {
+    assert.ok(error instanceof ProviderError);
+    assert.equal(error.code, "configuration_error");
+    assert.equal(error.message.includes("secret-canary"), false);
+    assert.equal(error.message.includes(path), false);
+    return true;
+  });
+});
+
+test("legacy single-account configuration adapts to default and empty config stays empty", async () => {
+  assert.deepEqual(await loadGeminiAccounts({}), []);
+  const loaded = await loadGeminiAccounts({ GEMINI_COOKIE: "__Secure-1PSID=legacy-secret", GEMINI_USER_AGENT: "Fixture Browser/1.0" });
+  assert.deepEqual(loaded.map(({ id }) => id), ["default"]);
+  await assert.rejects(loadGeminiAccounts({ GEMINI_COOKIE: "__Secure-1PSID=legacy-secret" }), error =>
+    error instanceof ProviderError && error.code === "configuration_error" && !error.message.includes("legacy-secret"));
+});
+
+test("account file rejects symlinks, broad permissions, duplicate IDs, malformed cookies, and oversized files", async t => {
+  const root = await tempDir(t);
+  const target = join(root, "target.json");
+  const link = join(root, "link.json");
+  await writeFile(target, JSON.stringify({ accounts: [account("one")] }), { mode: 0o600 });
+  await chmod(target, 0o600);
+  await symlink(target, link);
+  await assert.rejects(loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: link }), error => error instanceof ProviderError && error.code === "configuration_error");
+
+  await chmod(target, 0o644);
+  await assert.rejects(loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: target }), error => error instanceof ProviderError && error.code === "configuration_error");
+  await chmod(target, 0o600);
+  await writeFile(target, JSON.stringify({ accounts: [account("same"), account("same")] }), { mode: 0o600 });
+  await assert.rejects(loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: target }), error => error instanceof ProviderError && error.code === "configuration_error");
+  await writeFile(target, JSON.stringify({ accounts: [{ ...account("one"), cookie: "not-a-session" }] }), { mode: 0o600 });
+  await assert.rejects(loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: target }), error => error instanceof ProviderError && error.code === "configuration_error");
+  await writeFile(target, " ".repeat(1024 * 1024 + 1), { mode: 0o600 });
+  await assert.rejects(loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: target }), error => error instanceof ProviderError && error.code === "configuration_error");
+});
+
+test("ordered media route switches only on a definitive quota rejection and records account/kind cooldown", async t => {
+  const root = await tempDir(t);
+  let now = 1_000_000;
+  const store = new GeminiCooldownStore(join(root, "cooldowns.json"), () => now);
+  const calls: string[] = [];
+  const provider = accountProvider([account("first", { image: 10 }), account("second")], store, calls, {
+    first: () => { throw new GeminiQuotaError("image", now + 60_000); },
+    second: () => ({ content: "generated", remoteSession: { operationId: "job-2" } }),
+  });
+  const result = await provider.generateMedia(request("image"));
+  assert.equal(result.remoteSession?.accountId, "second");
+  assert.deepEqual(calls, ["image:first:new", "image:second:new"]);
+  assert.deepEqual(await store.status("first", "image"), {
+    coolingDown: true, blockedUntilMs: now + 60_000, remainingSeconds: 60, source: "website",
+  });
+  assert.equal((await store.status("first", "video")).coolingDown, false);
+  assert.equal((await store.status("second", "image")).coolingDown, false);
+
+  calls.length = 0;
+  const next = accountProvider([account("first"), account("second")], store, calls);
+  await next.generateMedia(request("image"));
+  assert.deepEqual(calls, ["image:second:new"]);
+});
+
+test("cooldown survives store recreation and expiry is read-only eligibility", async t => {
+  const root = await tempDir(t);
+  const file = join(root, "private-state", "cooldowns.json");
+  let now = 20_000;
+  const first = new GeminiCooldownStore(file, () => now);
+  await first.recordQuota("account1", "video", now + 5_000);
+  const before = await readFile(file, "utf8");
+  const statBefore = await lstat(file);
+  now += 4_999;
+  assert.equal((await new GeminiCooldownStore(file, () => now).status("account1", "video")).coolingDown, true);
+  now += 1;
+  const recovered = new GeminiCooldownStore(file, () => now);
+  assert.deepEqual(await recovered.status("account1", "video"), {
+    coolingDown: false, blockedUntilMs: 25_000, remainingSeconds: 0, source: "website",
+  });
+  assert.equal(await readFile(file, "utf8"), before);
+  assert.equal((await lstat(file)).mtimeMs, statBefore.mtimeMs);
+});
+
+test("unknown reset stays blocked across restart; explicit fallback records its source", async t => {
+  const root = await tempDir(t);
+  const file = join(root, "cooldowns.json");
+  const store = new GeminiCooldownStore(file, () => 100);
+  await store.recordQuota("unknown", "image");
+  await store.recordQuota("fallback", "video", undefined, 2);
+  const restarted = new GeminiCooldownStore(file, () => 101);
+  assert.deepEqual(await restarted.status("unknown", "image"), {
+    coolingDown: true, blockedUntilMs: null, remainingSeconds: null, source: "unknown",
+  });
+  assert.equal((await restarted.status("fallback", "video")).source, "configured_backoff");
+  assert.equal((await restarted.status("fallback", "video")).blockedUntilMs, 120_100);
+});
+
+test("corrupt cooldown records fail closed instead of being treated as available", async t => {
+  const root = await tempDir(t);
+  const file = join(root, "cooldowns.json");
+  const invalidRecords = [
+    { accountId: "one", kind: "image", recordedAtMs: -1, blockedUntilMs: 1_000, source: "website" },
+    { accountId: "one", kind: "image", recordedAtMs: 100, blockedUntilMs: null, source: "website" },
+    { accountId: "one", kind: "image", recordedAtMs: 100, blockedUntilMs: 200, source: "unknown" },
+    { accountId: "one", kind: "image", recordedAtMs: 200, blockedUntilMs: 200, source: "configured_backoff" },
+  ];
+  for (const record of invalidRecords) {
+    const encoded = JSON.stringify({ version: 1, records: [record] });
+    await writeFile(file, encoded, { mode: 0o600 });
+    await assert.rejects(new GeminiCooldownStore(file).status("one", "image"), error =>
+      error instanceof ProviderError && error.code === "cooldown_state_error");
+    assert.equal(await readFile(file, "utf8"), encoded);
+  }
+});
+
+test("all cooled accounts stop before generation and local status has aliases without querying websites", async t => {
+  const root = await tempDir(t);
+  const store = new GeminiCooldownStore(join(root, "cooldowns.json"), () => 50);
+  await store.recordQuota("one", "video");
+  await store.recordQuota("two", "video");
+  const calls: string[] = [];
+  const provider = accountProvider([account("one"), account("two")], store, calls);
+  await assert.rejects(provider.generateMedia(request("video")), error => error instanceof GeminiQuotaError && error.kind === "video");
+  assert.deepEqual(calls, []);
+  const status = await provider.accountStatus();
+  assert.deepEqual(status.map(({ id, order }) => ({ id, order })), [{ id: "one", order: 1 }, { id: "two", order: 2 }]);
+  assert.equal(status[0].cooldown.video.source, "unknown");
+  assert.deepEqual(calls, []);
+});
+
+test("earliest known reset is reported even if another account has an unknown reset", async t => {
+  const root = await tempDir(t);
+  const store = new GeminiCooldownStore(join(root, "cooldowns.json"));
+  await store.recordQuota("unknown", "video");
+  const knownReset = Date.now() + 60_000;
+  await store.recordQuota("known", "video", knownReset);
+  const calls: string[] = [];
+  const provider = accountProvider([account("unknown"), account("known")], store, calls);
+  await assert.rejects(provider.generateMedia(request("video")), error =>
+    error instanceof GeminiQuotaError && error.resetAtMs === knownReset);
+  assert.deepEqual(calls, []);
+});
+
+test("generic 429, authentication, CAPTCHA, and uncertain failures never switch accounts", async t => {
+  const failures = [
+    new ProviderError("rate limited", "rate_limit_error"),
+    new ProviderError("login", "authentication_error"),
+    new ProviderError("verification", "captcha_required"),
+    new ProviderError("uncertain", "quota_exhausted", true),
+  ];
+  for (const failure of failures) {
+    const root = await tempDir(t);
+    const calls: string[] = [];
+    const provider = accountProvider([account("one"), account("two")], new GeminiCooldownStore(join(root, "cooldowns.json")), calls, {
+      one: () => { throw failure; },
+    });
+    await assert.rejects(provider.generateMedia(request("image")), error => error === failure);
+    assert.deepEqual(calls, ["image:one:new"]);
+  }
+});
+
+test("quota rejection on a bound session records cooldown but never migrates the remote session", async t => {
+  const root = await tempDir(t);
+  const now = 9_000;
+  const store = new GeminiCooldownStore(join(root, "cooldowns.json"), () => now);
+  const calls: string[] = [];
+  const provider = accountProvider([account("one"), account("two")], store, calls, {
+    one: () => { throw new GeminiQuotaError("image", now + 10_000); },
+  });
+  const previous = { accountId: "one", conversationId: "old-conversation", accountHash: "one-hash" };
+  await assert.rejects(provider.generateMedia(request("image"), previous), error => error instanceof GeminiQuotaError);
+  assert.deepEqual(calls, ["image:one:one"]);
+  assert.equal((await store.status("one", "image")).coolingDown, true);
+  await assert.rejects(provider.generateMedia(request("image"), previous), error => error instanceof GeminiQuotaError);
+  assert.deepEqual(calls, ["image:one:one"]);
+
+  calls.length = 0;
+  await assert.rejects(provider.chat({ message: "continue", thinking: false }, { conversationId: "old", accountHash: "hash" }),
+    error => error instanceof ProviderError && error.code === "session_state_error");
+  assert.deepEqual(calls, []);
+});
+
+test("chat binds to configured first account and resumed chat remains pinned", async t => {
+  const root = await tempDir(t);
+  const calls: string[] = [];
+  const provider = accountProvider([account("one"), account("two")], new GeminiCooldownStore(join(root, "cooldowns.json")), calls);
+  const started = await provider.chat({ message: "hello", thinking: false });
+  assert.equal(started.remoteSession?.accountId, "one");
+  await provider.chat({ message: "continue", thinking: false }, started.remoteSession);
+  assert.deepEqual(calls, ["chat:one:new", "chat:one:one"]);
+});
+
+test("media fetching stays pinned to the session account and never falls back", async t => {
+  const root = await tempDir(t);
+  const fetches: string[] = [];
+  const provider = new GeminiAccountProvider([account("one"), account("two")], config => {
+    const delegate = fakeProvider(config.id, []);
+    return {
+      ...delegate,
+      async fetchMedia(url: string, init?: RequestInit) {
+        fetches.push(`${config.id}:${url}:${init?.method ?? "GET"}`);
+        return new Response(`fixture-${config.id}`);
+      },
+    };
+  }, new GeminiCooldownStore(join(root, "cooldowns.json")));
+  const response = await provider.fetchMediaForSession({ accountId: "two", accountHash: "two-hash" }, "https://media.example.test/file", { method: "GET" });
+  assert.equal(await response.text(), "fixture-two");
+  assert.deepEqual(fetches, ["two:https://media.example.test/file:GET"]);
+
+  fetches.length = 0;
+  const noFallback = new GeminiAccountProvider([account("one"), account("two")], config => {
+    const delegate = fakeProvider(config.id, []);
+    return config.id === "one" ? delegate : {
+      ...delegate,
+      async fetchMedia(url: string) { fetches.push(`${config.id}:${url}`); return new Response("wrong account"); },
+    };
+  }, new GeminiCooldownStore(join(root, "other-cooldowns.json")));
+  await assert.rejects(noFallback.fetchMediaForSession({ accountId: "one", accountHash: "one-hash" }, "https://media.example.test/file"),
+    error => error instanceof ProviderError && error.code === "unsupported_capability");
+  assert.deepEqual(fetches, []);
+});

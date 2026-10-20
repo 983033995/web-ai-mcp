@@ -4,6 +4,9 @@ import { ProviderError, type ProviderResult, type WebAIProvider } from "../core/
 import type { SessionStore } from "../core/session-store.js";
 import type { JobManager } from "../core/jobs.js";
 import { CHAT_DESCRIPTION, chatFields, dispatchChat, failureDetails } from "./guidance.js";
+import { GeminiQuotaError, type GeminiAccountStatus } from "../providers/gemini/cooldown.js";
+import { downloadMediaFile, validateMediaDirectory } from "../core/media-download.js";
+import { geminiMediaURL } from "../providers/gemini/media.js";
 
 const textResult = (text: string, error = false) => ({
   content: [{ type: "text" as const, text }],
@@ -20,7 +23,7 @@ const providerMessages: Readonly<Record<string, string>> = {
   cancelled: "Gemini website operation cancelled; an accepted message cannot be withdrawn.",
   network_error: "Gemini website transport failed; no automatic retry was performed.",
   http_error: "Gemini website returned an HTTP error; no automatic retry was performed.",
-  invalid_request: "Invalid Gemini chat request. Only the website default model is supported; thinking, search, files and media are not enabled.",
+  invalid_request: "Invalid Gemini request. Check the tool's supported parameters; model selection, thinking and reference uploads are not enabled.",
   unsupported_capability: "This Gemini capability is not verified and is disabled.",
   invalid_session: "Gemini website conversation state was not confirmed. Stop and check the website; do not create a replacement automatically.",
   session_state_error: "Gemini website conversation lineage was not confirmed.",
@@ -28,6 +31,12 @@ const providerMessages: Readonly<Record<string, string>> = {
   malformed_sse: "Gemini website returned malformed or truncated stream frames.",
   stream_error: "Gemini website reported a stream error.",
   website_error: "Gemini website rejected the request; upstream details are not exposed.",
+  quota_exhausted: "Eligible Gemini accounts are cooling down for this capability, or this conversation is pinned to an exhausted account. Read gemini_accounts for local cooldown state.",
+  cooldown_state_error: "Gemini cooldown state could not be read or saved safely. Generation is blocked; preserve the state file and check its permissions or lock.",
+  download_configuration_error: "Set WEB_AI_MEDIA_DIR to an existing private absolute directory without symbolic links.",
+  download_error: "Gemini media could not be downloaded. Retry only the download; do not generate again.",
+  media_not_ready: "The selected generated media is not ready; query gemini_media_status without resubmitting generation.",
+  history_not_found: "Gemini has not published this media turn in history yet. Query gemini_media_status later; do not resubmit generation.",
 };
 const sessionMessages = new Set([
   "session_key and conversation_id must identify the same conversation",
@@ -52,6 +61,11 @@ function redact(error: unknown): string {
 function answer(result: ProviderResult, key?: string) {
   const chunks = ["## Gemini answer\n\n" + result.content];
   if (key) chunks.push("session_key: " + key + "\nconversation_id: " + key);
+  if (typeof result.remoteSession?.accountId === "string") chunks.push("account_id: " + result.remoteSession.accountId);
+  if (result.media) chunks.push(JSON.stringify({
+    media_status: !result.media.length ? "no_media_returned" : result.media.every(m => m.status === "completed") ? "completed" : "incomplete",
+    media: result.media.map(({ resourceId: _resourceId, id: media_id, ...media }) => ({ media_id, ...media })),
+  }, null, 2));
   if (result.warning) chunks.push("warning: " + result.warning);
   return textResult(chunks.join("\n\n---\n\n"));
 }
@@ -59,9 +73,11 @@ function answer(result: ProviderResult, key?: string) {
 export function registerGeminiTools(
   server: McpServer, provider: WebAIProvider, sessions: SessionStore, jobs?: JobManager
 ): void {
+  const errorResult = (error: unknown) => textResult("[gemini error] " + redact(error) + "\n" + failureDetails(error) +
+    (error instanceof GeminiQuotaError ? "\n" + JSON.stringify({ cooldown_until: error.resetAtMs ? new Date(error.resetAtMs).toISOString() : null }) : ""), true);
   const { show_reasoning: _showReasoning, ...fields } = chatFields;
   server.registerTool("gemini_chat", {
-    description: "Chat through your own Gemini WEBSITE using its default model (experimental HTTP). No model selection, thinking toggle, search, files or media. system_prompt is a plain text prefix, not a website system role." + CHAT_DESCRIPTION,
+    description: "Chat through your own Gemini WEBSITE using its default model (experimental HTTP). Use dedicated Gemini tools for image/video generation. No model selection, thinking toggle, search or files. system_prompt is a plain text prefix, not a website system role." + CHAT_DESCRIPTION,
     inputSchema: z.object({ ...fields }).strict(),
   }, async (args, extra) => dispatchChat(args, extra, jobs, "gemini_chat", async signal => {
     try {
@@ -116,4 +132,85 @@ export function registerGeminiTools(
       return textResult(sessions.delete(key, provider.id) ? "Session forgotten locally" : "Session not present");
     } catch (error) { return textResult(redact(error), true); }
   });
+
+  const accounts = provider as WebAIProvider & { accountStatus?: () => Promise<GeminiAccountStatus[]> };
+  if (accounts.accountStatus) server.registerTool("gemini_accounts", {
+    description: "Read configured Gemini account order and independent image/video cooldowns. Local only; no login credentials, website requests or generation. Expiry restores eligibility, never replays tasks.",
+    inputSchema: z.object({}).strict(), annotations: { readOnlyHint: true, openWorldHint: false },
+  }, async () => {
+    try {
+      return textResult(JSON.stringify({ selection: "configured_order", accounts: (await accounts.accountStatus!()).map(a => ({
+        account_id: a.id, order: a.order, image_generation: a.imageGeneration, video_generation: a.videoGeneration,
+        cooldowns: Object.fromEntries(Object.entries(a.cooldown).map(([kind, value]) => [kind, {
+          cooling_down: value.coolingDown, blocked_until: value.blockedUntilMs ? new Date(value.blockedUntilMs).toISOString() : null,
+          remaining_seconds: value.remainingSeconds, source: value.source ?? null,
+        }])),
+      })) }, null, 2));
+    } catch (error) { return errorResult(error); }
+  });
+
+  if (provider.generateMedia) {
+    const fields = { prompt: z.string().trim().min(1).max(10000), session_key: z.string().uuid().optional(),
+      conversation_name: z.string().trim().min(1).max(80).optional(), background: chatFields.background, request_id: chatFields.request_id };
+    for (const kind of ["image", "video"] as const) {
+      if (!(kind === "image" ? provider.capabilities.imageGeneration : provider.capabilities.videoGeneration)) continue;
+      const tool = "gemini_generate_" + kind;
+      server.registerTool(tool, {
+        description: `Generate a Gemini ${kind} using configured accounts in order. Only a definitive unaccepted generation-quota rejection can advance to another account; bound sessions never move. Use background=true with a fresh UUID request_id for long work, then webai_job_status. No model/ratio/duration/reference options. Prose is not completed media; query gemini_media_status.`,
+        inputSchema: z.object(fields).strict(),
+      }, async (args, extra) => dispatchChat({ ...args, message: args.prompt }, extra, jobs, tool, async signal => {
+        try {
+          return await sessions.exclusive(args.session_key ?? args.conversation_name ?? "gemini-generation", async () => {
+            const previous = args.session_key ? sessions.require(args.session_key, provider.id)
+              : args.conversation_name ? sessions.named(args.conversation_name, provider.id) : undefined;
+            const record = previous ?? sessions.put({ providerId: provider.id, remote: {}, name: args.conversation_name, title: "Website media conversation" });
+            sessions.beginTurn(record.key);
+            try {
+              const result = await provider.generateMedia!({ kind, prompt: args.prompt, signal }, previous?.remote);
+              if (result.remoteSession) sessions.update(record.key, result.remoteSession); else sessions.invalidate(record.key);
+              return answer({ ...result, media: result.media ?? [] }, result.remoteSession ? record.key : undefined);
+            } catch (error) {
+              if (error instanceof ProviderError && !error.sessionUncertain) {
+                sessions.cancelTurn(record.key); if (!previous) sessions.delete(record.key);
+              } else sessions.invalidate(record.key);
+              throw error;
+            }
+          });
+        } catch (error) { return errorResult(error); }
+      }));
+    }
+  }
+  if (provider.getMedia) {
+    server.registerTool("gemini_media_status", {
+      description: "Read one bounded Gemini conversation response to retrieve existing generated media. Does not submit, confirm or retry generation, and never changes accounts. Requires the returned local session_key.",
+      inputSchema: z.object({ session_key: z.string().uuid() }).strict(), annotations: { readOnlyHint: true },
+    }, async ({ session_key }, extra) => {
+      try {
+        return await sessions.exclusive(session_key, async () => {
+          const record = sessions.require(session_key, provider.id);
+          const result = await provider.getMedia!(record.remote, extra.signal);
+          if (result.remoteSession) sessions.update(record.key, result.remoteSession);
+          return answer({ ...result, media: result.media ?? [] }, record.key);
+        });
+      } catch (error) { return errorResult(error); }
+    });
+    server.registerTool("gemini_download_media", {
+      description: "Refresh existing Gemini media, select an actual completed media_id and save the validated image/video under WEB_AI_MEDIA_DIR. Does not generate or remove watermarks. Downloads never retry generation.",
+      inputSchema: z.object({ session_key: z.string().uuid(), media_id: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+    }, async ({ session_key, media_id }, extra) => {
+      try {
+        const directory = await validateMediaDirectory();
+        return await sessions.exclusive(session_key, async () => {
+          const record = sessions.require(session_key, provider.id);
+          const result = await provider.getMedia!(record.remote, extra.signal);
+          const media = result.media?.find(m => m.id === media_id && m.status === "completed" && m.url);
+          if (!media?.url) throw new ProviderError("Media not ready", "media_not_ready");
+          const bound = provider as WebAIProvider & { fetchMediaForSession?: (session: Record<string, string | number | boolean | null | undefined>, url: string, init?: RequestInit) => Promise<Response> };
+          const file = await downloadMediaFile(media.url, media.type, extra.signal, { directory, validateUrl: geminiMediaURL,
+            ...(bound.fetchMediaForSession ? { fetch: (input, init) => bound.fetchMediaForSession!(record.remote, String(input), init) } : {}) });
+          return textResult(JSON.stringify({ media_id, type: media.type, local_path: file.localPath, bytes: file.bytes, mime_type: file.mimeType }));
+        });
+      } catch (error) { return errorResult(error); }
+    });
+  }
 }

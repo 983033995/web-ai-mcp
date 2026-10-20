@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { parseGeminiStream } from "../src/providers/gemini/stream.js";
+import { GeminiQuotaError } from "../src/providers/gemini/cooldown.js";
 
 function frame(content: string, ids = true): string {
   const record: unknown[] = Array(26).fill(null);
@@ -41,6 +42,76 @@ test("Gemini parser retains an answer when the website omits lineage", async () 
   assert.equal(parsed.conversationId, undefined);
   assert.equal(parsed.replyId, undefined);
   assert.equal(parsed.candidateId, undefined);
+});
+
+test("ordinary chat parsing does not expose media cards unless a media generation kind was requested", async () => {
+  const record: unknown[] = Array(26).fill(null);
+  record[1] = ["c_fixture", "r_fixture"];
+  const candidate: unknown[] = Array(13).fill(null);
+  candidate[0] = "rc_fixture";
+  candidate[1] = ["ordinary answer"];
+  const rich: unknown[] = [];
+  rich[7] = [[[[null, null, null, [null, null, "alt", "https://lh3.googleusercontent.com/gg/example?alr=1"]], ["image-id"]]]];
+  candidate[12] = rich;
+  record[4] = [candidate];
+  const json = JSON.stringify([["wrb.fr", null, JSON.stringify(record)]]);
+  const parsed = await parseGeminiStream(new Response(`)]}'\n${json}\ndi`).body!, signal());
+  assert.equal(parsed.content, "ordinary answer");
+  assert.equal(parsed.media, undefined);
+});
+
+test("an empty-content video candidate remains pending only with explicit in-progress status and complete lineage", async () => {
+  const candidate: unknown[] = Array(13).fill(null);
+  candidate[0] = "rc_fixture";
+  candidate[8] = [1];
+  candidate[12] = [];
+  const record: unknown[] = Array(26).fill(null);
+  record[1] = ["c_fixture", "r_fixture"];
+  record[4] = [candidate];
+  const body = `)]}'\n${JSON.stringify([["wrb.fr", null, JSON.stringify(record)]])}\ndi`;
+  const parsed = await parseGeminiStream(new Response(body).body!, signal(), { quotaKind: "video" });
+  assert.equal(parsed.content, "");
+  assert.equal(parsed.completionStatus, 1);
+  assert.deepEqual([parsed.conversationId, parsed.replyId, parsed.candidateId], ["c_fixture", "r_fixture", "rc_fixture"]);
+});
+
+test("a sparse follow-up candidate without status preserves a confirmed pending video state", async () => {
+  const first: unknown[] = Array(13).fill(null);
+  first[0] = "rc_fixture"; first[8] = [1]; first[12] = [];
+  const next: unknown[] = Array(13).fill(null);
+  next[0] = "rc_fixture"; next[12] = [];
+  const rpc = (candidate: unknown) => {
+    const record: unknown[] = Array(26).fill(null);
+    record[1] = ["c_fixture", "r_fixture"]; record[4] = [candidate];
+    return JSON.stringify([["wrb.fr", null, JSON.stringify(record)]]);
+  };
+  const parsed = await parseGeminiStream(new Response(`)]}'\n${rpc(first)}\n${rpc(next)}\ndi`).body!, signal(), { quotaKind: "video" });
+  assert.equal(parsed.completionStatus, 1);
+});
+
+test("a later candidate snapshot without a media field does not erase previously observed generated media", async () => {
+  const first: unknown[] = Array(13).fill(null);
+  first[0] = "rc_fixture"; first[1] = ["answer"];
+  first[12] = [];
+  first[12][7] = [[
+    [
+      [null, null, null, [null, null, "alt", "https://lh3.googleusercontent.com/gg/fixture?alr=1"]],
+      ["image-id"]
+    ]
+  ]];
+  const later: unknown[] = Array(13).fill(null);
+  later[0] = "rc_fixture"; later[1] = ["answer"];
+  later[8] = [2];
+  later[12] = [];
+  const rpc = (candidate: unknown) => {
+    const record: unknown[] = Array(26).fill(null);
+    record[1] = ["c_fixture", "r_fixture"]; record[4] = [candidate];
+    return JSON.stringify([["wrb.fr", null, JSON.stringify(record)]]);
+  };
+  const body = `)]}'\n${rpc(first)}\n${rpc(later)}\ndi`;
+  const parsed = await parseGeminiStream(new Response(body).body!, signal(), { quotaKind: "image" });
+  assert.equal(parsed.media?.length, 1);
+  assert.equal(parsed.media?.[0].id?.length, 64);
 });
 
 for (const [name, body] of [
@@ -155,6 +226,30 @@ test("Gemini parser rejects explicit errors even after receiving partial answer 
       return true;
     });
   }
+});
+
+test("only a definitive 1037 with no earlier candidate is typed as media quota exhaustion", async () => {
+  const emptyRecord = JSON.stringify(Array(26).fill(null));
+  const quotaPart = ["wrb.fr", null, emptyRecord, null, null, [null, null, [[null, [1037]]]]];
+  const quotaBody = `)]}'\n${JSON.stringify([quotaPart])}\ndi`;
+  await assert.rejects(parseGeminiStream(new Response(quotaBody).body!, signal(), { quotaKind: "image" }),
+    (error: any) => error instanceof GeminiQuotaError && error.kind === "image" && !error.sessionUncertain);
+  await assert.rejects(parseGeminiStream(new Response(quotaBody).body!, signal()),
+    (error: any) => error.code === "stream_error" && error.sessionUncertain);
+
+  const acceptedCandidate: unknown[] = Array(26).fill(null);
+  acceptedCandidate[1] = ["c_fixture", "r_fixture"];
+  acceptedCandidate[4] = [["rc_fixture", ["already accepted"]]];
+  const accepted = JSON.stringify(["wrb.fr", null, JSON.stringify(acceptedCandidate)]);
+  const afterCandidate = `)]}'\n${accepted}\n${JSON.stringify([quotaPart])}\ndi`;
+  await assert.rejects(parseGeminiStream(new Response(afterCandidate).body!, signal(), { quotaKind: "video" }),
+    (error: any) => error.code === "stream_error" && !(error instanceof GeminiQuotaError));
+
+  const sameEntry = Array(26).fill(null);
+  sameEntry[4] = [["rc_fixture", ["started"]]];
+  const sameEntryQuota = ["wrb.fr", null, JSON.stringify(sameEntry), null, null, [null, null, [[null, [1037]]]]];
+  await assert.rejects(parseGeminiStream(new Response(`)]}'\n${JSON.stringify([sameEntryQuota])}\ndi`).body!, signal(), { quotaKind: "video" }),
+    (error: any) => error instanceof GeminiQuotaError && error.kind === "video");
 });
 
 test("Gemini parser enforces the bounded response size", async () => {

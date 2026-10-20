@@ -36,10 +36,13 @@ description: 调用 web-ai MCP 的 DeepSeek、豆包或实验性 Gemini 网页�
 
 网站回复是待验证的建议。命令、版本、参数和删除建议必须结合实际项目或官方资料复核，不照着网页模型建议盲改服务。
 
-## Gemini 默认聊天
+## Gemini 聊天、媒体和账号
 
-- 当前源码提供 `gemini_chat`、`gemini_sessions_list`、`gemini_session_close`，使用网页默认模型；支持后台任务、命名会话和正常重启续聊。
-- 不传 `model`、`thinking`、`show_reasoning`、文件或媒体参数；没有 `gemini_reasoner`。`system_prompt` 是消息文字前缀，不是网站系统角色。
+- 当前源码提供默认模型的 `gemini_chat`、`gemini_sessions_list`、`gemini_session_close`；支持后台任务、命名会话和正常重启续聊。
+- 图片/视频使用 `gemini_generate_image` / `gemini_generate_video`，传 `prompt`；长操作传 `background:true` 与 UUID `request_id` 后查询 job。实际媒体用 `gemini_media_status` 只读查询；保存用 `gemini_download_media(session_key,media_id)`，需 `WEB_AI_MEDIA_DIR`。不要靠文字承诺或重发来确认生成，不去水印。
+- 按 `GEMINI_ACCOUNTS_FILE` 顺序自动选择未冷却账号，无需 `account_id`。仅明确未受理的生成额度拒绝可记录冷却并尝试下一账号；已绑定会话不迁移。验证码、登录异常、一般429和不确定结果停止，不自动换号。
+- `gemini_accounts` 只读显示图片/视频各自冷却与恢复时间来源。官网没有可靠恢复时间时仅使用明确配置的本地退避，否则保持未知。到期只恢复资格，不后台重放；不要删除状态文件来解除冷却。
+- 不传 `model`、`thinking`、`show_reasoning`、比例/时长/风格、文件或参考图参数；没有 `gemini_reasoner`。`system_prompt` 是消息文字前缀，不是网站系统角色。
 - 不从网页模型菜单推断 HTTP 能力；登录失效或账号发生变化时停止，手动更新本人 Cookie，不继续使用另一个账号的 key。
 - 网站验证只使用普通、非敏感对话，不在消息中写测试、MCP 或技术标记。
 

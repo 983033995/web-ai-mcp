@@ -1,10 +1,15 @@
 import { GeminiWebError } from "./errors.js";
+import { GeminiQuotaError, type GeminiMediaKind } from "./cooldown.js";
+import { extractGeminiCandidateMedia } from "./media.js";
+import type { GeneratedMedia } from "../../core/provider.js";
 
 export interface GeminiWebReply {
   content: string;
   conversationId?: string;
   replyId?: string;
   candidateId?: string;
+  media?: GeneratedMedia[];
+  completionStatus?: number;
 }
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -14,6 +19,14 @@ const malformed = () => new GeminiWebError("invalid_response", "Invalid or incom
 const streamError = () => new GeminiWebError("stream_error", "Gemini Web reported a stream error; upstream details suppressed", true);
 const id = (value: unknown, prefix: "c_" | "r_" | "rc_"): value is string => typeof value === "string" &&
   value.length <= 256 && new RegExp(`^${prefix}[A-Za-z0-9_-]{1,${256 - prefix.length}}$`).test(value);
+const nested = (value: unknown, path: readonly number[]): unknown => {
+  let current = value;
+  for (const index of path) {
+    if (!Array.isArray(current)) return undefined;
+    current = current[index];
+  }
+  return current;
+};
 
 function readWithAbort<T>(reader: ReadableStreamDefaultReader<T>, signal: AbortSignal): Promise<ReadableStreamReadResult<T>> {
   signal.throwIfAborted();
@@ -44,7 +57,8 @@ function validFrameLength(expected: number, line: string): boolean {
 function applyFrame(frame: unknown, state: {
   conversationId?: string; replyId?: string; candidateId?: string; content: string; records: number;
   endRecordSeen: boolean; outerEntries: number; totalBytes?: number; allObservedLengths: boolean;
-}, alreadyTerminal: boolean, observedLength: boolean): boolean {
+  media: GeneratedMedia[]; completionStatus?: number; sawCandidate: boolean; sawProgress: boolean;
+}, alreadyTerminal: boolean, observedLength: boolean, quotaKind?: GeminiMediaKind): boolean {
   if (!Array.isArray(frame)) throw malformed();
   const entries = typeof frame[0] === "string" ? [frame] : frame;
   if (!entries.length) throw malformed();
@@ -81,15 +95,26 @@ function applyFrame(frame: unknown, state: {
     if (kind === "er") throw streamError();
     if (alreadyTerminal || sawTerminal || state.endRecordSeen) throw malformed();
     if (kind !== "wrb.fr") throw malformed();
-    if (typeof entry[2] !== "string" || Buffer.byteLength(entry[2], "utf8") > MAX_FRAME_BYTES) throw malformed();
+    const outerQuotaCode = nested(entry, [5, 2, 0, 1, 0]);
+    if (outerQuotaCode !== undefined) {
+      if (outerQuotaCode === 1037 && quotaKind && !state.sawCandidate && !state.sawProgress && !state.content &&
+          state.media.length === 0) throw new GeminiQuotaError(quotaKind);
+      throw streamError();
+    }
     let record: unknown;
-    try { record = JSON.parse(entry[2]); } catch { throw malformed(); }
+    if (typeof entry[2] === "string" && Buffer.byteLength(entry[2], "utf8") <= MAX_FRAME_BYTES) {
+      try { record = JSON.parse(entry[2]); } catch { throw malformed(); }
+    } else {
+      throw malformed();
+    }
+    const queueing = outerQuotaCode === undefined && Array.isArray(entry[5]) && entry[5].length > 0;
     if (!Array.isArray(record)) throw malformed();
     // In the confirmed success shape slot zero is null. A populated slot is
     // an upstream error record; do not return any earlier partial candidate.
     if (record[0] !== undefined && record[0] !== null) throw streamError();
     state.records++;
     state.outerEntries++;
+    state.sawProgress ||= queueing;
     const metadata = record[1];
     if (metadata !== undefined && metadata !== null) {
       if (!Array.isArray(metadata)) throw malformed();
@@ -109,6 +134,7 @@ function applyFrame(frame: unknown, state: {
     const candidate = Array.isArray(candidates) ? candidates[0] : undefined;
     if (candidate === undefined || candidate === null) continue;
     if (!Array.isArray(candidate)) throw malformed();
+    state.sawCandidate = true;
     const candidateId = candidate[0];
     if (candidateId !== undefined && candidateId !== null) {
       if (!id(candidateId, "rc_") || (state.candidateId && candidateId !== state.candidateId)) throw malformed();
@@ -122,6 +148,13 @@ function applyFrame(frame: unknown, state: {
         state.content = candidateText[0];
       }
     }
+    if (quotaKind) {
+      const extracted = extractGeminiCandidateMedia(candidate, {
+        conversationId: state.conversationId, replyId: state.replyId, candidateId: state.candidateId,
+      }, quotaKind);
+      if (extracted.mediaPresent) state.media = extracted.media;
+      if (extracted.completionStatus !== undefined) state.completionStatus = extracted.completionStatus;
+    }
   }
   return sawTerminal;
 }
@@ -132,12 +165,18 @@ function applyFrame(frame: unknown, state: {
  * counts, UTF-16 code-unit counts, and the observed code-unit count including
  * the two framing newlines. A split UTF-8 sequence is decoded incrementally.
  */
-export async function parseGeminiStream(body: ReadableStream<Uint8Array>, signal: AbortSignal): Promise<GeminiWebReply> {
+export async function parseGeminiStream(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+  options: { quotaKind?: GeminiMediaKind } = {},
+): Promise<GeminiWebReply> {
   const reader = body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const state: { conversationId?: string; replyId?: string; candidateId?: string; content: string; records: number;
-    endRecordSeen: boolean; outerEntries: number; totalBytes?: number; allObservedLengths: boolean } = {
-    content: "", records: 0, endRecordSeen: false, outerEntries: 0, allObservedLengths: true
+    endRecordSeen: boolean; outerEntries: number; totalBytes?: number; allObservedLengths: boolean;
+    media: GeneratedMedia[]; completionStatus?: number; sawCandidate: boolean; sawProgress: boolean } = {
+    content: "", records: 0, endRecordSeen: false, outerEntries: 0, allObservedLengths: true,
+    media: [], sawCandidate: false, sawProgress: false,
   };
   let pending = "";
   let bytes = 0;
@@ -184,7 +223,7 @@ export async function parseGeminiStream(body: ReadableStream<Uint8Array>, signal
       if (!validFrameLength(expectedLength, line)) throw malformed();
       expectedLength = undefined;
     }
-    terminal = applyFrame(json, state, terminal, currentFrameObservedLength) || terminal;
+    terminal = applyFrame(json, state, terminal, currentFrameObservedLength, options.quotaKind) || terminal;
     currentFrameObservedLength = false;
     if (state.records > MAX_FRAMES) throw malformed();
   }
@@ -211,11 +250,15 @@ export async function parseGeminiStream(body: ReadableStream<Uint8Array>, signal
       }
       if (Buffer.byteLength(pending, "utf8") > MAX_FRAME_BYTES) throw malformed();
     }
-    if (expectedLength !== undefined || !terminal || !state.records || !state.content ||
+    const acceptedDeferredMedia = Boolean(options.quotaKind && state.completionStatus === 1 &&
+      id(state.conversationId, "c_") && id(state.replyId, "r_") && id(state.candidateId, "rc_"));
+    if (expectedLength !== undefined || !terminal || !state.records || (!state.content && !state.media.length && !acceptedDeferredMedia) ||
         (state.endRecordSeen && state.totalBytes !== bytes)) throw malformed();
-    return { content: state.content, conversationId: state.conversationId, replyId: state.replyId, candidateId: state.candidateId };
+    return { content: state.content, conversationId: state.conversationId, replyId: state.replyId,
+      candidateId: state.candidateId, ...(state.media.length ? { media: state.media } : {}),
+      ...(state.completionStatus === undefined ? {} : { completionStatus: state.completionStatus }) };
   } catch (error) {
-    if (error instanceof GeminiWebError || signal.aborted) throw error;
+    if (error instanceof GeminiWebError || error instanceof GeminiQuotaError || signal.aborted) throw error;
     throw malformed();
   } finally {
     signal.removeEventListener("abort", abort);

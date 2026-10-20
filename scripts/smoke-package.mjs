@@ -26,6 +26,8 @@ try {
     assert.ok(paths.includes(path), path);
   }
   const tarball = join(temporary, pack.filename);
+  for (const path of ["dist/core/media-download.js", "dist/providers/gemini/accounts.js", "dist/providers/gemini/cooldown.js",
+    "dist/providers/gemini/media.js", "dist/providers/gemini/history.js"]) assert.ok(paths.includes(path), path);
   writeFileSync(join(temporary, "package.json"), JSON.stringify({ private: true, name: "package-smoke" }));
   run(["install", "--ignore-scripts", "--omit=dev", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org", tarball], { cwd: temporary });
   const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));

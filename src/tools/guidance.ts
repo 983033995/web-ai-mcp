@@ -14,7 +14,9 @@ export const USAGE = `Web AI MCP 使用规则：
 9. 网站回复是待复核建议；套餐/额度提示不是有效答案。输出中的命令、版本和参数需对照项目或官方来源验证。
 10. 文件和参考图必须在 WEB_AI_ALLOWED_ROOTS 中；生成的文字承诺不是媒体完成，异步视频用 doubao_media_status 查询。
 11. 保存生成资源用 doubao_download_media(session_key, media_id)，需配置 WEB_AI_MEDIA_DIR；无水印选项仅图片支持。下载失败只重试下载，不重复生成；目录与上传白名单独立。
-12. Gemini 为实验性网页默认模型聊天，使用 gemini_chat；支持名称、ID、后台任务及重启续聊。没有 gemini_reasoner，不支持指定模型、thinking、文件、搜索或媒体。system_prompt 只是文本前缀。网页菜单可见某模型不代表 HTTP 已验证支持。`;
+12. Gemini 默认文字聊天使用 gemini_chat；生成图片/视频使用 gemini_generate_image / gemini_generate_video，长任务传 background=true 和 UUID request_id。媒体仅以实际资源结果为准，异步用 gemini_media_status，只读查询不提交生成。保存用 gemini_download_media，需 WEB_AI_MEDIA_DIR。
+13. Gemini 媒体按本机账号配置顺序选择。仅明确未受理的生成额度拒绝可切到下一个账号；验证码、登录异常、一般429和不确定结果不切换或重发。已有会话固定原账号。gemini_accounts 只读显示图片/视频各自冷却；计时结束只恢复资格，不重放任务。网站恢复时间未知时仅使用明确配置的本地退避间隔，并标记来源。
+14. 没有 gemini_reasoner；Gemini 不支持指定模型、thinking、文件或参考图参数。system_prompt 只是文字前缀。网页菜单可见某模型不代表 HTTP 已验证支持。`;
 
 export const CHAT_DESCRIPTION = " message is required every turn. Use conversation_name OR returned session_key, never both; closed/uncertain keys cannot be reused. For long tasks use background=true + a new UUID request_id, then poll webai_job_status; never resubmit after timeout. Read webai_usage before first use.";
 
@@ -39,7 +41,7 @@ export function failureDetails(error: unknown): string {
   const value = error instanceof Error ? error.message : "";
   const rawCode = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : undefined;
   const knownCodes = ["invalid_session", "invalid_request", "authentication_error", "captcha_required", "rate_limit_error", "cancelled", "timeout_error",
-    "network_error", "invalid_response", "malformed_sse", "session_state_error", "stream_error", "website_error", "access_denied"];
+    "network_error", "invalid_response", "malformed_sse", "session_state_error", "stream_error", "website_error", "access_denied", "quota_exhausted", "cooldown_state_error"];
   const code = rawCode && knownCodes.includes(rawCode) ? rawCode :
     /Use conversation|must identify|Conflicting/.test(value) ? "invalid_arguments" :
     /invalidated|interrupted|uncertain/.test(value) ? "session_uncertain" :
@@ -47,6 +49,7 @@ export function failureDetails(error: unknown): string {
   const action = code === "invalid_arguments" ? "Correct the selectors; send message plus either name or returned key, not both." :
     code === "session_missing" ? "Do not reuse this key. List sessions; after explicit user intent, start a new conversation without the closed/missing key." :
     code === "invalid_session" ? "Website session creation/lineage was not confirmed. Stop unchanged retries; inspect current website access/configuration and protocol." :
+    code === "quota_exhausted" ? "All eligible accounts for this operation are cooling down, or this conversation is pinned to an exhausted account. Read gemini_accounts; do not resubmit until the corresponding cooldown expires." :
     ["authentication_error", "captcha_required", "rate_limit_error"].includes(code) ? "Stop website calls. Resolve account/login/verification/quota through the official interface; do not switch account or mode automatically." :
     /busy|locked/.test(value) ? "Wait for the current operation/job; do not submit another website write in parallel." :
     "Do not automatically repeat the website write. Check job status (if submitted), local sessions and website state first.";

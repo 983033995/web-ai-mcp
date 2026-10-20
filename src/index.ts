@@ -22,7 +22,7 @@ async function main(): Promise<void> {
   } });
   const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
   if (values.help) {
-    console.log("web-ai-mcp [--env-file /absolute/path/.env] [--setup] [--version]\n\nNo options: start the local stdio MCP server. Configure DEEPSEEK_USER_TOKEN, experimental DOUBAO_COOKIE + DOUBAO_CHAT_URL + DOUBAO_USER_AGENT, or experimental GEMINI_COOKIE + GEMINI_USER_AGENT.\n--setup: download and verify pinned PoW WASM in local cache; no website credentials required.\n--env-file: load local configuration (existing environment variables take precedence).\nDeepSeek startup downloads WASM if no local file/cache exists; see THIRD_PARTY_NOTICES.md.");
+    console.log("web-ai-mcp [--env-file /absolute/path/.env] [--setup] [--version]\n\nNo options: start the local stdio MCP server. Configure DEEPSEEK_USER_TOKEN, experimental DOUBAO_COOKIE + DOUBAO_CHAT_URL + DOUBAO_USER_AGENT, or Gemini GEMINI_COOKIE + GEMINI_USER_AGENT / private GEMINI_ACCOUNTS_FILE.\n--setup: download and verify pinned PoW WASM in local cache; no website credentials required.\n--env-file: load local configuration (existing environment variables take precedence).\nDeepSeek startup downloads WASM if no local file/cache exists; see THIRD_PARTY_NOTICES.md.");
     return;
   }
   if (values.version) { console.log(version); return; }
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
     return;
   }
   const registry = new ProviderRegistry();
-  registerProviders(registry);
+  await registerProviders(registry);
   await registry.initializeAll();
 
   const projectRoot = resolve(process.env.WEB_AI_PROJECT_ROOT || process.cwd());

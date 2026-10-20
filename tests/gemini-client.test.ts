@@ -4,6 +4,7 @@ import { strict as assert } from "node:assert";
 import type { RemoteSession } from "../src/core/provider.js";
 import { GeminiWebProvider } from "../src/providers/gemini/index.js";
 import { GeminiWebClient } from "../src/providers/gemini/web-client.js";
+import { GeminiQuotaError } from "../src/providers/gemini/cooldown.js";
 
 const cookie = "__Secure-1PSID=fixture-session; other=value";
 const userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/132.0.0.0 Safari/537.36";
@@ -36,6 +37,99 @@ function requestPayload(init?: RequestInit): { payload: unknown[]; at: string } 
   return { at: form.get("at")!, payload: JSON.parse(request[1]) };
 }
 
+function generatedStream(kind: "image" | "video", status = 2): Response {
+  const candidate: unknown[] = Array(13).fill(null);
+  candidate[0] = "rc_generated";
+  candidate[8] = [status];
+  const rich: unknown[] = [];
+  if (kind === "image") {
+    const image: unknown[] = [];
+    image[0] = [null, null, null, [null, null, "alt", "https://lh3.googleusercontent.com/gg/preview?alr=1"]];
+    image[1] = ["image-id"];
+    image[3] = [];
+    image[3][22] = [];
+    image[3][22][7] = ["thumbnail", "https://contribution.usercontent.google.com/download?c=img&filename=image.png&opi=1"];
+    rich[7] = [[image]];
+  } else {
+    const videoInfo: unknown[] = [];
+    videoInfo[0] = [];
+    videoInfo[0][7] = ["https://lh3.googleusercontent.com/gg/preview?alr=1", "https://contribution.usercontent.google.com/download?c=vid&filename=video.mp4&opi=1"];
+    rich[59] = [[[videoInfo]]];
+    rich[7] = [["companion preview"]];
+  }
+  candidate[12] = rich;
+  const record: unknown[] = Array(26).fill(null);
+  record[1] = ["c_generated", "r_generated"];
+  record[4] = [candidate];
+  const json = JSON.stringify([["wrb.fr", null, JSON.stringify(record)]]);
+  const final = JSON.stringify([["di", 3810], ["af.httprm", 3809, "fixture", 2]]);
+  const framed = (line: string) => `${line.length + 2}\n${line}\n`;
+  const prefix = `)]}'\n\n${framed(json)}${framed(final)}`;
+  let total = 0;
+  let body = "";
+  for (let i = 0; i < 4; i++) {
+    body = prefix + framed(JSON.stringify([["e", 4, null, null, total]]));
+    total = Buffer.byteLength(body);
+  }
+  body = prefix + framed(JSON.stringify([["e", 4, null, null, total]]));
+  return new Response(body, { headers: { "Content-Type": "application/json; charset=utf-8" } });
+}
+
+function historyStream(kind: "image" | "video", completionStatus = 2, includeMedia = true): Response {
+  const candidate: unknown[] = Array(13).fill(null);
+  candidate[0] = "rc_generated";
+  candidate[8] = [completionStatus];
+  const rich: unknown[] = [];
+  if (kind === "video" && includeMedia) {
+    const videoInfo: unknown[] = [];
+    videoInfo[0] = [];
+    videoInfo[0][7] = ["https://lh3.googleusercontent.com/gg/preview?alr=1", "https://contribution.usercontent.google.com/download?c=vid&filename=video.mp4&opi=1"];
+    rich[59] = [[[videoInfo]]];
+    rich[7] = [["companion preview"]];
+  }
+  candidate[12] = rich;
+  const turn: unknown[] = [];
+  turn[0] = [null, "r_generated"];
+  turn[3] = [[candidate]];
+  const record = JSON.stringify([[turn]]);
+  const framed = (json: string) => `${json.length + 2}\n${json}\n`;
+  const prefix = `)]}'\n${framed(JSON.stringify([["wrb.fr", "hNvQHb", record, null, null, null]]))}${framed(JSON.stringify([["di", 5], ["af.httprm", 4, "fixture", 2]]))}`;
+  let total = 0;
+  let body = "";
+  for (let i = 0; i < 4; i++) {
+    body = prefix + framed(JSON.stringify([["e", 4, null, null, total]]));
+    total = Buffer.byteLength(body);
+  }
+  body = prefix + framed(JSON.stringify([["e", 4, null, null, total]]));
+  return new Response(body, { headers: { "Content-Type": "application/json; charset=utf-8" } });
+}
+
+function quotaFailureStream(): Response {
+  const empty = JSON.stringify(Array(26).fill(null));
+  const part = ["wrb.fr", null, empty, null, null, [null, null, [[null, [1037]]]]];
+  return new Response(`)]}'\n${JSON.stringify([part])}\ndi`, { headers: { "Content-Type": "application/json" } });
+}
+
+function quotaRPCResponse(payload: unknown): Response {
+  const frame = JSON.stringify([["wrb.fr", "aPya6c", JSON.stringify(payload), null, null, null]]);
+  return new Response(`)]}'\n${frame.length + 2}\n${frame}\ndi\n`, { headers: { "Content-Type": "application/json; charset=utf-8" } });
+}
+
+test("read-only in-progress history without a resource URL remains pending", async () => {
+  let reads = 0;
+  const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent, fetch: async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/app") return new Response(html(), { headers: { "Content-Type": "text/html" } });
+    assert.equal(url.pathname, "/_/BardChatUi/data/batchexecute");
+    reads++;
+    return historyStream("video", 1, false);
+  } });
+  const result = await client.getMedia({ conversationId: "c_generated", replyId: "r_generated", candidateId: "rc_generated", accountHash, mediaKind: "video" });
+  assert.equal(result.media?.[0].status, "pending");
+  assert.equal(result.media?.[0].url, undefined);
+  assert.equal(reads, 1);
+});
+
 test("Gemini provider sends default-model chat and resumes a second turn with fresh lineage", async () => {
   const responses = [
     () => stream("第一轮回答。", { conversationId: "c_fixture", replyId: "r_1", candidateId: "rc_1" }),
@@ -63,7 +157,8 @@ test("Gemini provider sends default-model chat and resumes a second turn with fr
   assert.equal(firstPayload.payload[0][0], "请讲一个短故事。");
   assert.deepEqual(firstPayload.payload[2], ["", "", "", null, null, null, null, null, null, ""]);
   assert.deepEqual(secondPayload.payload[2], ["c_fixture", "r_1", "rc_1", null, null, null, null, null, null, ""]);
-  assert.deepEqual(provider.capabilities, { chat: true, thinking: false, files: false, webSearch: false, sessionResume: true });
+  assert.deepEqual(provider.capabilities, { chat: true, thinking: false, files: false, webSearch: false, sessionResume: true,
+    imageGeneration: true, videoGeneration: true });
 });
 
 test("missing reply lineage returns content without a resumable session", async () => {
@@ -268,4 +363,194 @@ test("initialization returns promptly when oversized HTML cancellation cleanup s
 test("a missing session cookie value is rejected without exposing its value", async () => {
   assert.throws(() => new GeminiWebClient("__Secure-1PSID=", { userAgent }), (error: any) =>
     error.code === "configuration_error" && !error.message.includes("fixture"));
+});
+
+test("Gemini media generation uses one ordinary prompt and only reports verified MIME results", async () => {
+  const calls: Array<{ url: URL; init?: RequestInit }> = [];
+  const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent, fetch: async (input, init) => {
+    const url = new URL(String(input)); calls.push({ url, init });
+    if (url.pathname === "/app") return new Response(html(), { headers: { "Content-Type": "text/html" } });
+    if (url.pathname.endsWith("/StreamGenerate")) return generatedStream("image");
+    if (url.hostname === "lh3.googleusercontent.com" && url.pathname.startsWith("/gg/")) {
+      assert.equal(init?.method, "GET"); assert.equal(init?.redirect, "manual");
+      assert.equal(new Headers(init?.headers).get("cookie"), null);
+      return new Response(null, { status: 302, headers: { Location: "https://lh3.google.com/rd-gg/full-size" } });
+    }
+    if (url.hostname === "lh3.google.com") {
+      assert.equal(url.pathname, "/rd-gg/full-size");
+      assert.equal(new Headers(init?.headers).get("cookie"), cookie);
+      return new Response(null, { status: 302, headers: { Location: "https://lh3.googleusercontent.com/rd-gg/final-image" } });
+    }
+    if (url.hostname === "lh3.googleusercontent.com" && url.pathname.startsWith("/rd-gg/")) {
+      assert.equal(new Headers(init?.headers).get("cookie"), null);
+      return new Response(null, { status: 200, headers: { "Content-Type": "image/jpeg" } });
+    }
+    throw new Error("unexpected fixture URL");
+  } });
+  const provider = new GeminiWebProvider(cookie, client);
+  const result = await provider.generateMedia({ kind: "image", prompt: "A paper boat on a quiet pond." });
+  assert.equal(result.media?.length, 1);
+  assert.equal(result.media?.[0].status, "completed");
+  assert.equal(result.media?.[0].url, "https://lh3.googleusercontent.com/rd-gg/final-image");
+  assert.equal("probeUrl" in (result.media?.[0] ?? {}), false);
+  assert.equal(result.remoteSession?.mediaKind, "image");
+  assert.ok(!JSON.stringify(result.remoteSession).includes("download"));
+  assert.ok(!JSON.stringify(result.remoteSession).includes("A paper boat"));
+  const write = calls.find(call => call.init?.method === "POST")!;
+  const payload = requestPayload(write.init).payload;
+  assert.match(String(payload[0] && (payload[0] as unknown[])[0]), /^Generate an image based on this description: A paper boat/);
+  assert.equal(calls.filter(call => call.url.pathname.endsWith("/StreamGenerate")).length, 1);
+
+  const beforeInvalid = calls.length;
+  await assert.rejects(provider.generateMedia({ kind: "video", prompt: "clip", model: "named" }),
+    (error: any) => error.code === "unsupported_capability");
+  await assert.rejects(provider.generateMedia({ kind: "video", prompt: "clip", durationSeconds: 5 }),
+    (error: any) => error.code === "unsupported_capability");
+  assert.equal(calls.length, beforeInvalid);
+});
+
+test("Gemini video status is read from hNvQHb history and never repeats generation", async () => {
+  let writes = 0;
+  let videoGets = 0;
+  const calls: Array<{ url: URL; init?: RequestInit }> = [];
+  const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent, fetch: async (input, init) => {
+    const url = new URL(String(input)); calls.push({ url, init });
+    if (url.pathname === "/app") return new Response(html(), { headers: { "Content-Type": "text/html" } });
+    if (url.pathname.endsWith("/StreamGenerate")) { writes++; return generatedStream("video", 1); }
+    if (url.pathname.endsWith("/batchexecute")) {
+      const form = new URLSearchParams(String(init?.body));
+      assert.equal(url.searchParams.get("rpcids"), "hNvQHb");
+      const body = JSON.parse(form.get("f.req")!);
+      assert.equal(body[0][0][0], "hNvQHb");
+      assert.deepEqual(JSON.parse(body[0][0][1]).slice(0, 2), ["c_generated", 10]);
+      return historyStream("video");
+    }
+    if (url.hostname === "contribution.usercontent.google.com") {
+      videoGets++;
+      assert.equal(new Headers(init?.headers).get("cookie"), cookie);
+      return videoGets === 1
+        ? new Response(null, { status: 404, headers: { "Content-Type": "text/html" } })
+        : new Response(null, { status: 200, headers: { "Content-Type": "video/mp4" } });
+    }
+    throw new Error("unexpected fixture URL");
+  } });
+  const provider = new GeminiWebProvider(cookie, client);
+  const first = await provider.generateMedia({ kind: "video", prompt: "A slow camera move over a snowy village." });
+  assert.equal(first.media?.length, 1);
+  assert.equal(first.media?.[0].type, "video");
+  assert.equal(first.media?.[0].status, "pending");
+  assert.equal(first.media?.[0].url, undefined);
+  const second = await provider.getMedia(first.remoteSession!);
+  assert.equal(second.media?.[0].status, "completed");
+  assert.match(second.media?.[0].url ?? "", /contribution\.usercontent\.google\.com\/download/);
+  assert.equal(writes, 1);
+  assert.equal(calls.filter(call => call.url.pathname.endsWith("/batchexecute")).length, 1);
+});
+
+test("Gemini media quota code is typed only for generation and never for ordinary chat", async () => {
+  const calls: Array<{ url: URL; init?: RequestInit }> = [];
+  const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent, fetch: async (input, init) => {
+    const url = new URL(String(input)); calls.push({ url, init });
+    if (url.pathname === "/app") return new Response(html(), { headers: { "Content-Type": "text/html" } });
+    if (url.pathname.endsWith("/batchexecute")) return quotaRPCResponse([false, 0, null]);
+    const empty = JSON.stringify(Array(26).fill(null));
+    const part = ["wrb.fr", null, empty, null, null, [null, null, [[null, [1037]]]]];
+    return new Response(`)]}'\n${JSON.stringify([part])}\ndi`, { headers: { "Content-Type": "application/json" } });
+  } });
+  await assert.rejects(client.generateMedia({ kind: "image", prompt: "A blue paper kite." }),
+    (error: any) => error instanceof GeminiQuotaError && error.kind === "image" && !error.sessionUncertain);
+  await assert.rejects(client.chat({ message: "ordinary question", thinking: false }),
+    (error: any) => error.code === "stream_error" && !(error instanceof GeminiQuotaError));
+  assert.equal(calls.filter(call => call.init?.method === "POST").length, 3);
+});
+
+test("definitive media quota reads the authoritative reset once and validates its scope", async () => {
+  for (const [name, payload, expectedReset] of [
+    ["future blocked reset", [true, 1, [Math.ceil((Date.now() + 60_000) / 1000)]], true],
+    ["not blocked", [false, 0, [Math.ceil((Date.now() + 60_000) / 1000)]], false],
+    ["missing reset", [true, 1, null], false],
+    ["expired reset", [true, 1, [1]], false],
+  ] as const) {
+    const calls: Array<{ url: URL; init?: RequestInit }> = [];
+    const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent, fetch: async (input, init) => {
+      const url = new URL(String(input)); calls.push({ url, init });
+      if (url.pathname === "/app") return new Response(html(), { headers: { "Content-Type": "text/html" } });
+      if (url.pathname.endsWith("/StreamGenerate")) return quotaFailureStream();
+      assert.equal(url.pathname, "/_/BardChatUi/data/batchexecute");
+      assert.equal(url.searchParams.get("rpcids"), "aPya6c");
+      assert.equal(url.searchParams.get("source-path"), "/app");
+      const request = JSON.parse(new URLSearchParams(String(init?.body)).get("f.req")!);
+      assert.deepEqual(request[0][0], ["aPya6c", "[]", null, "generic"]);
+      return quotaRPCResponse(payload);
+    } });
+    await assert.rejects(client.generateMedia({ kind: "image", prompt: `quota ${name}` }), (error: any) => {
+      assert.ok(error instanceof GeminiQuotaError);
+      assert.equal(error.kind, "image");
+      assert.equal(error.sessionUncertain, false);
+      assert.equal(Boolean(error.resetAtMs), expectedReset);
+      return true;
+    });
+    assert.equal(calls.filter(call => call.url.pathname.endsWith("/StreamGenerate")).length, 1);
+    assert.equal(calls.filter(call => call.url.pathname.endsWith("/batchexecute")).length, 1);
+  }
+});
+
+test("malformed quota read stops without returning typed quota or a retry signal", async () => {
+  let posts = 0;
+  const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent, fetch: async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/app") return new Response(html(), { headers: { "Content-Type": "text/html" } });
+    posts++;
+    if (url.pathname.endsWith("/StreamGenerate")) return quotaFailureStream();
+    return quotaRPCResponse(["unexpected-shape"]);
+  } });
+  await assert.rejects(client.generateMedia({ kind: "video", prompt: "one video" }), (error: any) =>
+    error.code === "invalid_response" && !(error instanceof GeminiQuotaError) && !error.sessionUncertain);
+  assert.equal(posts, 2);
+});
+
+test("truncated quota RPC cannot provide a reset or authorize account fallback", async () => {
+  let writes = 0;
+  const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent, fetch: async input => {
+    const url = new URL(String(input));
+    if (url.pathname === "/app") return new Response(html(), { headers: { "Content-Type": "text/html" } });
+    if (url.pathname.endsWith("/StreamGenerate")) { writes++; return quotaFailureStream(); }
+    return new Response(")]}'\n" + JSON.stringify([["wrb.fr", "aPya6c", JSON.stringify([true, 1, [Math.ceil((Date.now() + 60000) / 1000)]])]]),
+      { headers: { "Content-Type": "application/json" } });
+  } });
+  await assert.rejects(client.generateMedia({ kind: "video", prompt: "A drifting leaf." }), (error: any) =>
+    error.code === "invalid_response" && !(error instanceof GeminiQuotaError));
+  assert.equal(writes, 1);
+});
+
+test("quota read HTTP 429 is not reclassified as quota exhaustion or a media failover signal", async () => {
+  let streamCalls = 0;
+  let quotaCalls = 0;
+  const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent, fetch: async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/app") return new Response(html(), { headers: { "Content-Type": "text/html" } });
+    if (url.pathname.endsWith("/StreamGenerate")) { streamCalls++; return quotaFailureStream(); }
+    quotaCalls++;
+    return new Response("not quota data", { status: 429 });
+  } });
+  await assert.rejects(client.generateMedia({ kind: "video", prompt: "one video" }), (error: any) =>
+    error.code === "rate_limit_error" && !(error instanceof GeminiQuotaError));
+  assert.equal(streamCalls, 1);
+  assert.equal(quotaCalls, 1);
+});
+
+test("authenticated media fetch restricts redirects and never forwards cookies to another host", async () => {
+  const calls: Array<{ url: URL; init?: RequestInit }> = [];
+  const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent, fetch: async (input, init) => {
+    const url = new URL(String(input)); calls.push({ url, init });
+    if (url.hostname === "contribution.usercontent.google.com") {
+      return new Response(null, { status: 302, headers: { Location: "https://accounts.google.com/ServiceLogin" } });
+    }
+    throw new Error("redirect was followed");
+  } });
+  const response = await client.fetchMedia("https://contribution.usercontent.google.com/download?c=vid&filename=video.mp4&opi=1");
+  assert.equal(response.status, 302);
+  assert.equal(calls.length, 1);
+  assert.equal(new Headers(calls[0].init?.headers).get("cookie"), cookie);
+  assert.equal(calls[0].init?.redirect, "manual");
 });
