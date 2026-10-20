@@ -22,7 +22,7 @@ try {
     assert.ok(path === "package.json" || path === ".env.example" || path.startsWith("dist/") ||
       path.startsWith("docs/") || ["README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "AGENTS.md"].includes(path), path);
   }
-  for (const path of ["dist/index.js", "dist/core/files.js", "dist/core/jobs.js", "dist/tools/common.js", "dist/tools/guidance.js", "dist/providers/deepseek/wasm.js", "dist/providers/doubao/index.js", "dist/providers/doubao/web-client.js", "dist/providers/doubao/sse.js", "dist/providers/doubao/errors.js", "dist/providers/doubao/upload.js", "dist/providers/doubao/media.js", "dist/tools/doubao.js", "LICENSE", "THIRD_PARTY_NOTICES.md"]) {
+  for (const path of ["dist/index.js", "dist/core/files.js", "dist/providers/doubao/download.js", "dist/core/jobs.js", "dist/tools/common.js", "dist/tools/guidance.js", "dist/providers/deepseek/wasm.js", "dist/providers/doubao/index.js", "dist/providers/doubao/web-client.js", "dist/providers/doubao/sse.js", "dist/providers/doubao/errors.js", "dist/providers/doubao/upload.js", "dist/providers/doubao/media.js", "dist/tools/doubao.js", "LICENSE", "THIRD_PARTY_NOTICES.md"]) {
     assert.ok(paths.includes(path), path);
   }
   const tarball = join(temporary, pack.filename);

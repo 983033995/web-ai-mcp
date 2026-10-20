@@ -35,3 +35,9 @@ description: 调用 web-ai MCP 的 DeepSeek 或豆包网页聊天与专家思考
 - `webai_job_cancel` 仅取消本机等待，不能撤回网站消息。
 
 网站回复是待验证的建议。命令、版本、参数和删除建议必须结合实际项目或官方资料复核，不照着网页模型建议盲改服务。
+
+## 图片和视频下载
+
+- 图片/视频完成后调用 `doubao_download_media`，传实际 `session_key` 和 `media_id`，保存文件到配置的 `WEB_AI_MEDIA_DIR`。异步任务先用 `doubao_media_status` 查询，文字承诺不是完成。
+- `without_watermark: true` 仅用于图片官网无水印下载；需官网明确确认。视频该选项尚不支持，不能猜参数或改写 URL。
+- 下载失败只重试下载工具，不重复生成；相同媒体重复下载会另存新文件。未配置目录先配置，目录与上传授权无关。

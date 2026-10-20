@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { GeneratedMedia, MediaGenerationRequest } from "../../core/provider.js";
 import { DoubaoWebError } from "./errors.js";
 
@@ -53,7 +54,7 @@ export function creationAbility(request: MediaGenerationRequest) {
         camera_movement: "fixed", input_box_content: input }) };
 }
 
-function mediaURL(value: unknown, type: "image" | "video"): string {
+export function mediaURL(value: unknown, type: "image" | "video"): string {
   if (typeof value !== "string" || value.length > 8192) throw invalid();
   let url: URL;
   try { url = new URL(value); } catch { throw invalid(); }
@@ -84,15 +85,24 @@ export function creationMedia(value: unknown): GeneratedMedia[] {
     const completed = type === "image" ? resource.status === 2 : resource.status === 3;
     // Other website statuses are deliberately not interpreted as successful generation.
     const status = completed ? "completed" : type === "image" && resource.status === 1 ? "pending" : "unavailable";
-    if (!completed) return { type, status };
+    const id = createHash("sha256").update("doubao-media:" + creation.id).digest("hex");
+    if (!completed) return { id, type, status };
     const image = resource.image_ori;
     if (type === "image" && !object(image)) throw invalid();
-    const result: GeneratedMedia = { type, status, url: mediaURL(type === "image" ? image.url : resource.download_url, type),
+    const result: GeneratedMedia = { id, type, status, url: mediaURL(type === "image" ? image.url : resource.download_url, type),
       width: dimension(type === "image" ? image.width : resource.width), height: dimension(type === "image" ? image.height : resource.height) };
+    if (type === "image" && validImageResourceId(resource.key)) result.resourceId = resource.key;
     if (type === "video" && resource.duration !== undefined) {
       if (typeof resource.duration !== "number" || !Number.isFinite(resource.duration) || resource.duration <= 0) throw invalid();
       result.durationSeconds = resource.duration;
     }
     return result;
   });
+}
+
+/** Website resource URI, not an arbitrary URL or a local path. */
+export function validImageResourceId(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 1024 &&
+    /^tos-[a-z0-9-]+\/[a-zA-Z0-9_./-]+$/.test(value) &&
+    !value.split("/").some(part => !part || part === "." || part === "..");
 }

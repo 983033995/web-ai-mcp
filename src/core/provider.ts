@@ -23,12 +23,15 @@ export interface MediaGenerationRequest {
 }
 
 export interface GeneratedMedia {
+  id?: string;
   type: "image" | "video";
   status: "pending" | "completed" | "unavailable";
   url?: string;
   width?: number;
   height?: number;
   durationSeconds?: number;
+  /** Opaque provider-owned download reference; never persisted in session storage. */
+  resourceId?: string;
 }
 
 export interface ChatRequest {
@@ -68,4 +71,5 @@ export interface WebAIProvider {
   analyzeFiles?(files: FileInput[], instruction: string, thinking: boolean, signal?: AbortSignal): Promise<ProviderResult>;
   generateMedia?(request: MediaGenerationRequest, session?: RemoteSession): Promise<ProviderResult>;
   getMedia?(session: RemoteSession, signal?: AbortSignal): Promise<ProviderResult>;
+  resolveMediaDownload?(media: GeneratedMedia, withoutWatermark: boolean, signal?: AbortSignal): Promise<string>;
 }

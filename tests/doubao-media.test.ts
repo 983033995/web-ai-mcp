@@ -135,7 +135,7 @@ test("Doubao HTTP switches requested models on one session and rejects incompati
 
 test("Doubao creation snapshots replace pending cards and expose actual URLs without raw task IDs", async () => {
   const reply = await parse(ack + text + chunk(card([image(1)])) + chunk(card([image()])) + end);
-  assert.deepEqual(reply.media, [{ type: "image", status: "completed", url: imageURL, width: 2048, height: 2048 }]);
+  assert.deepEqual(reply.media, [{ id: "96c2e389b3ec7dbcde40192a3aad0cca9f306ab228418f9672ade514d20bad83", type: "image", status: "completed", url: imageURL, width: 2048, height: 2048 }]);
   assert.ok(!JSON.stringify(reply.media).includes("creation-image"));
   assert.equal((await parse(ack + text + chunk(card([image(1)])) + end)).media?.[0].status, "pending");
   assert.equal((await parse(ack + text + chunk(card([image(1)])) + chunk(card([]), 3) + end)).media, undefined);

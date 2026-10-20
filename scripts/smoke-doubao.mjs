@@ -123,7 +123,7 @@ try {
   const env = {
     DEEPSEEK_USER_TOKEN: "", DOUBAO_COOKIE: "sessionid=fixture; passport_csrf_token=fixture; s_v_web_id=fixture",
     DOUBAO_CHAT_URL: `http://127.0.0.1:${website.address().port}/chat/completion?aid=497858&device_id=1&web_id=2&tea_uuid=3&fp=fixture&pc_version=3.41.1&region=CN&sys_region=CN&web_tab_id=fixture`,
-    DOUBAO_USER_AGENT: "fixture-agent", WEB_AI_SESSION_STORE_PATH: join(directory, "sessions.json"), WEB_AI_SESSION_TTL_MINUTES: "0"
+    DOUBAO_USER_AGENT: "fixture-agent", WEB_AI_MEDIA_DIR: "", WEB_AI_SESSION_STORE_PATH: join(directory, "sessions.json"), WEB_AI_SESSION_TTL_MINUTES: "0"
   };
   const connect = async () => {
     client = new Client({ name: "doubao-smoke", version: "0" });
@@ -140,8 +140,8 @@ try {
   };
   stage = "stdio initialization";
   await connect();
-  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ["doubao_analyze_files", "doubao_chat", "doubao_generate_image", "doubao_generate_video", "doubao_media_status", "doubao_reasoner", "doubao_session_close", "doubao_sessions_list", "webai_job_cancel", "webai_job_status", "webai_providers", "webai_usage"]);
-  evidence.push("Doubao-only twelve tools discovered, including usage and background job controls");
+  assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ["doubao_analyze_files", "doubao_chat", "doubao_download_media", "doubao_generate_image", "doubao_generate_video", "doubao_media_status", "doubao_reasoner", "doubao_session_close", "doubao_sessions_list", "webai_job_cancel", "webai_job_status", "webai_providers", "webai_usage"]);
+  evidence.push("Doubao-only thirteen tools discovered, including usage and background job controls");
   const providers = JSON.parse((await call("webai_providers")).text);
   assert.equal(providers.active[0].id, "doubao");
   assert.equal(providers.active[0].capabilities.thinking, true);
@@ -191,6 +191,11 @@ try {
   const media = await call("doubao_media_status", { session_key: videoKey });
   assert.equal(media.error, false); assert.ok(media.text.includes("https://v11-vdl.doubao.com/fixture.mp4"));
   evidence.push("image model, ratio, style and allowed reference upload; default Fast video and read-only result lookup after restart");
+  const mediaId = JSON.parse(media.text.split("\n\n---\n\n").find(part => part.trim().startsWith("{"))).media[0].media_id;
+  assert.ok(mediaId);
+  const download = await call("doubao_download_media", { session_key: videoKey, media_id: mediaId });
+  assert.equal(download.error, true); assert.ok(download.text.includes("download_configuration_error"));
+  evidence.push("download tool and stable media ID are available; missing media directory rejects before download");
   const disk = await readFile(env.WEB_AI_SESSION_STORE_PATH, "utf8");
   assert.ok(!disk.includes("first-canary") && !disk.includes("second-canary") && !disk.includes("sessionid=fixture"));
   assert.ok(!disk.includes("synthetic image fixture") && !disk.includes("fixture.mp4"));

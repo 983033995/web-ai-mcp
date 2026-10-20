@@ -1,9 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import type { ChatRequest, FileInput, MediaGenerationRequest, ProviderResult, RemoteSession } from "../../core/provider.js";
+import type { ChatRequest, FileInput, GeneratedMedia, MediaGenerationRequest, ProviderResult, RemoteSession } from "../../core/provider.js";
 import { DoubaoWebError, businessError, captchaError, httpError } from "./errors.js";
 import { parseSSE, type DoubaoWebReply } from "./sse.js";
 import { DoubaoUploader, validateReferenceImage, type DoubaoAttachment, type DoubaoImageAttachment } from "./upload.js";
-import { creationAbility, creationMedia } from "./media.js";
+import { creationAbility, creationMedia, mediaURL, validImageResourceId } from "./media.js";
 
 export interface DoubaoClientOptions {
   chatUrl?: string;
@@ -96,9 +96,9 @@ export class DoubaoWebClient {
           conversation_id: previous.conversationId, anchor_index: Number.MAX_SAFE_INTEGER, conversation_type: 3, direction: 1,
           limit: 20, ext: {}, filter: { index_list: [] }, evaluate_ab_params: "", evaluate_common_params: "", option: { lazy_load_strategy: 0 }
         } }, sequence_id: String(Date.now()), channel: 2, version: "1" }) });
-      if (!response.ok) { await response.body?.cancel(); throw httpError(response.status); }
+      if (!response.ok) { void response.body?.cancel().catch(() => {}); throw httpError(response.status); }
       if (!response.headers.get("content-type")?.startsWith("application/json")) {
-        await response.body?.cancel(); throw new DoubaoWebError("invalid_response", "Expected Doubao history JSON");
+        void response.body?.cancel().catch(() => {}); throw new DoubaoWebError("invalid_response", "Expected Doubao history JSON");
       }
       const payload = await this.readJSON(response, controller.signal, 2 * 1024 * 1024) as Record<string, any>;
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new DoubaoWebError("invalid_response", "Invalid Doubao history JSON");
@@ -134,6 +134,51 @@ export class DoubaoWebClient {
         throw new DoubaoWebError(error.code, error.message);
       }
       throw new DoubaoWebError("network_error", "Doubao history transport failed; no automatic retry was performed");
+    } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); }
+  }
+
+  /** Resolve the website's official download; never changes generation parameters or rewrites CDN URLs. */
+  async resolveMediaDownload(media: GeneratedMedia, withoutWatermark: boolean, signal?: AbortSignal): Promise<string> {
+    if (media.status !== "completed" || !media.url) throw new DoubaoWebError("media_not_ready", "Media is not completed");
+    const original = mediaURL(media.url, media.type);
+    if (!withoutWatermark) return original;
+    if (media.type !== "image") throw new DoubaoWebError("unsupported_capability", "Official video watermark removal is not verified");
+    if (!validImageResourceId(media.resourceId)) throw new DoubaoWebError("invalid_response", "Missing website image download reference");
+    if (this.verificationBlocked) throw captchaError();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.min(this.timeout, 10000));
+    const abort = () => controller.abort(signal?.reason);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+    try {
+      controller.signal.throwIfAborted();
+      const url = new URL(this.url); url.pathname = "/creativity/resource/get_without_watermark";
+      const response = await this.request(url, { method: "POST", redirect: "error", signal: controller.signal,
+        headers: { "Content-Type": "application/json", Cookie: this.cookie, "User-Agent": this.userAgent,
+          "x-tt-passport-csrf-token": this.csrf, Origin: this.url.origin, Referer: "https://www.doubao.com/chat" },
+        body: JSON.stringify({ uri: [media.resourceId] }) });
+      if (!response.ok) { void response.body?.cancel().catch(() => {}); throw httpError(response.status); }
+      if (!response.headers.get("content-type")?.startsWith("application/json")) {
+        void response.body?.cancel().catch(() => {}); throw new DoubaoWebError("invalid_response", "Expected Doubao download JSON");
+      }
+      const payload = await this.readJSON(response, controller.signal) as Record<string, any>;
+      const failure = businessError(payload);
+      if (failure) throw failure;
+      if (!payload || (payload.code !== 0 && payload.code !== "0") || payload.data?.without_watermark !== true) {
+        throw new DoubaoWebError("watermark_unavailable", "Website did not authorize a download without watermark");
+      }
+      const image = payload.data.download_image;
+      if (!image || typeof image !== "object" || !Object.hasOwn(image, media.resourceId) || image[media.resourceId]?.uri !== media.resourceId) {
+        throw new DoubaoWebError("invalid_response", "Website download resource mismatch");
+      }
+      return mediaURL(image[media.resourceId].url, "image");
+    } catch (error) {
+      if (controller.signal.aborted) throw new DoubaoWebError(signal?.aborted ? "cancelled" : "timeout_error", "Doubao download lookup interrupted");
+      if (error instanceof DoubaoWebError) {
+        if (error.code === "captcha_required") this.verificationBlocked = true;
+        throw new DoubaoWebError(error.code, error.message);
+      }
+      throw new DoubaoWebError("network_error", "Doubao download lookup failed");
     } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); }
   }
 
@@ -254,7 +299,7 @@ export class DoubaoWebClient {
       throw new DoubaoWebError("invalid_response", "Invalid Doubao JSON response", true);
     } finally {
       signal.removeEventListener("abort", abort);
-      await reader.cancel().catch(() => {});
+      void reader.cancel().catch(() => {});
       reader.releaseLock();
     }
   }

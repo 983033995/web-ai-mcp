@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { FileInput, MediaGenerationRequest, ProviderResult, WebAIProvider } from "../core/provider.js";
+import { downloadMediaFile, validateMediaDirectory } from "../providers/doubao/download.js";
 import { readAllowedFiles } from "../core/files.js";
 import { ProviderError } from "../core/provider.js";
 import type { SessionStore } from "../core/session-store.js";
@@ -14,6 +15,10 @@ const textResult = (text: string, error = false) => ({
 });
 
 const safeProviderMessages: Readonly<Record<string, string>> = {
+  download_configuration_error: "Set WEB_AI_MEDIA_DIR to an existing absolute directory without symbolic links; downloads never use WEB_AI_ALLOWED_ROOTS.",
+  download_error: "Media download failed; no complete file was saved. Retry doubao_download_media, never generation.",
+  media_not_ready: "The selected media has not completed or no longer appears in the latest 20 messages. Query doubao_media_status and use its media_id.",
+  watermark_unavailable: "The website did not authorize the requested image download without watermark; check official account permissions. No fallback was downloaded.",
   authentication_error: "Doubao login credentials are invalid or expired; log in through the website, update DOUBAO_COOKIE and restart.",
   access_denied: "Doubao website access denied; check access in your browser.",
   rate_limit_error: "Doubao website rate limit reached; wait before retrying.",
@@ -78,7 +83,8 @@ function formatAnswer(result: ProviderResult, key?: string, showReasoning = fals
   if (result.media?.length || generation) {
     const media = result.media ?? [];
     const status = !media.length ? "no_media_returned" : media.every(item => item.status === "completed") ? "completed" : "incomplete";
-    chunks.push(JSON.stringify({ media_status: status, media }, null, 2));
+    chunks.push(JSON.stringify({ media_status: status, media: media.map(({ resourceId: _resourceId, id: media_id, ...item }) => ({ media_id, ...item })) }, null, 2));
+    if (media.some(item => item.status === "completed")) chunks.push("To save a file, call doubao_download_media with session_key and media_id. Requires WEB_AI_MEDIA_DIR; without_watermark=true supports images only. Never regenerate to retry a download.");
     if (!media.length) chunks.push("No generated media was returned. Read the website reply for confirmation or clarification; query doubao_media_status later for asynchronous results. Do not resubmit automatically.");
   }
   if (key) chunks.push("session_key: " + key + "\nconversation_id: " + key);
@@ -274,6 +280,30 @@ export function registerDoubaoTools(
         return formatAnswer(result, session_key, false, true);
       });
     } catch (error) { return textResult("[doubao media error] " + redact(error), true); }
+  });
+
+  if (provider.getMedia && provider.resolveMediaDownload) server.registerTool("doubao_download_media", {
+    description: "Download ONE completed image/video from an existing Doubao conversation to configured WEB_AI_MEDIA_DIR. First query doubao_media_status and select its media_id. Never generates, confirms or resubmits. Website URLs are refreshed from history; arbitrary URLs, filenames and output directories are not accepted. without_watermark=true uses the official image download endpoint and requires website confirmation; videos currently reject that option. Files use unique names and are never overwritten. Total wait is bounded to 45 seconds; on failure retry this download tool, not generation.",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    inputSchema: z.object({ session_key: z.string().uuid(), media_id: z.string().trim().min(1).max(256),
+      without_watermark: z.boolean().default(false) }).strict(),
+  }, async ({ session_key, media_id, without_watermark }, extra) => {
+    try {
+      const signal = AbortSignal.any([extra.signal, AbortSignal.timeout(45000)]);
+      signal.throwIfAborted();
+      const directory = await validateMediaDirectory();
+      return await sessions.exclusive(session_key, async () => {
+        const record = sessions.require(session_key, provider.id);
+        const result = await provider.getMedia!(record.remote, signal);
+        if (result.remoteSession) sessions.update(session_key, result.remoteSession);
+        const media = result.media?.find(item => item.id === media_id);
+        if (!media || media.status !== "completed" || !media.url) throw new ProviderError("Media not ready", "media_not_ready");
+        const url = await provider.resolveMediaDownload!(media, without_watermark, signal);
+        const file = await downloadMediaFile(url, media.type, signal, { directory });
+        return textResult(JSON.stringify({ session_key, media_id, type: media.type, local_path: file.localPath,
+          bytes: file.bytes, mime_type: file.mimeType, watermark: without_watermark ? "without_watermark" : "original" }, null, 2));
+      });
+    } catch (error) { return textResult("[doubao download error] " + redact(error) + " Retry only doubao_download_media after correcting the issue; never regenerate to retry a download.", true); }
   });
 
   server.tool(
