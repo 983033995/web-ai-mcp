@@ -1,7 +1,7 @@
 # Codex engineering rules — Web AI MCP
 
 ## Mission
-Build a safe, maintainable MCP server exposing **your own web AI conversations**. v0.2.0 includes DeepSeek Web and the explicitly requested experimental Doubao HTTP provider; earlier npm v0.1.2 supports DeepSeek only. Do **not** implement CLIProxyAPI, OpenAI proxy endpoints, or official DeepSeek API access.
+Build a safe, maintainable MCP server exposing **your own web AI conversations**. Source includes DeepSeek Web and the explicitly requested experimental Doubao and Gemini HTTP providers; earlier npm v0.1.2 supports DeepSeek only. Do **not** implement CLIProxyAPI, OpenAI proxy endpoints, or official DeepSeek API access.
 
 ## Coding principles
 - Keep changes minimal and incremental; validate each vertical slice before expanding.
@@ -27,6 +27,7 @@ Build a safe, maintainable MCP server exposing **your own web AI conversations**
 5. Doubao chat, expert thinking and TXT files were explicitly requested on 2026-10-14. Do not add other providers or remote MCP HTTP transport without subsequent requirements.
 6. Doubao text-to-image and text-to-video were explicitly requested on 2026-10-19. Treat website clarification, acknowledgement and completed media as different outcomes; asynchronous result queries must not submit generation.
 7. Long-chat/background jobs were requested on 2026-10-19 after Qoder's 60-second control timeout. Preserve pending/uncertain protection; job status never submits writes. Job IDs are not session keys, process restart never silently replays work, and progress notifications do not guarantee client timeout extension.
+8. Gemini integration was requested on 2026-10-20 after default-model StreamGenerate preflight. Enable only proven default chat/session/background capabilities. Model selection, thinking, files, media, Cookie rotation and processSession remain disabled until separately verified; never infer HTTP support from a website menu.
 
 ## GitHub maintenance
 - Use a task branch and a pull request; do not push ordinary changes directly to protected main. Codex branch names use codex/.

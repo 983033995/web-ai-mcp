@@ -10,6 +10,7 @@ import { loadPowWasm } from "./providers/deepseek/wasm.js";
 import { registerProviders } from "./providers/index.js";
 import { registerDeepSeekTools } from "./tools/deepseek.js";
 import { registerDoubaoTools } from "./tools/doubao.js";
+import { registerGeminiTools } from "./tools/gemini.js";
 import { JobManager } from "./core/jobs.js";
 import { registerCommonTools } from "./tools/common.js";
 import { USAGE } from "./tools/guidance.js";
@@ -21,7 +22,7 @@ async function main(): Promise<void> {
   } });
   const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
   if (values.help) {
-    console.log("web-ai-mcp [--env-file /absolute/path/.env] [--setup] [--version]\n\nNo options: start the local stdio MCP server. Configure DEEPSEEK_USER_TOKEN or experimental DOUBAO_COOKIE + DOUBAO_CHAT_URL + DOUBAO_USER_AGENT.\n--setup: download and verify pinned PoW WASM in local cache; no website credentials required.\n--env-file: load local configuration (existing environment variables take precedence).\nFirst startup downloads WASM if no local file/cache exists; see THIRD_PARTY_NOTICES.md.");
+    console.log("web-ai-mcp [--env-file /absolute/path/.env] [--setup] [--version]\n\nNo options: start the local stdio MCP server. Configure DEEPSEEK_USER_TOKEN, experimental DOUBAO_COOKIE + DOUBAO_CHAT_URL + DOUBAO_USER_AGENT, or experimental GEMINI_COOKIE + GEMINI_USER_AGENT.\n--setup: download and verify pinned PoW WASM in local cache; no website credentials required.\n--env-file: load local configuration (existing environment variables take precedence).\nDeepSeek startup downloads WASM if no local file/cache exists; see THIRD_PARTY_NOTICES.md.");
     return;
   }
   if (values.version) { console.log(version); return; }
@@ -50,6 +51,9 @@ async function main(): Promise<void> {
   if (registry.has("doubao")) {
     registerDoubaoTools(server, registry.get("doubao"), sessions, jobs);
   }
+  if (registry.has("gemini")) {
+    registerGeminiTools(server, registry.get("gemini"), sessions, jobs);
+  }
 
   server.tool(
     "webai_providers",
@@ -60,7 +64,8 @@ async function main(): Promise<void> {
         type: "text" as const,
         text: JSON.stringify({
           active: registry.list(),
-          planned: registry.has("doubao") ? [] : [{ id: "doubao", status: "not_configured", experimental: true }]
+          planned: ["doubao", "gemini"].filter(id => !registry.has(id))
+            .map(id => ({ id, status: "not_configured", experimental: true }))
         }, null, 2),
       }]
     })
@@ -73,7 +78,7 @@ async function main(): Promise<void> {
 main().catch((error: unknown) => {
   // stdout is reserved for MCP JSON-RPC messages.
   let message = error instanceof Error ? error.message : "Startup failed";
-  for (const secret of [process.env.DEEPSEEK_USER_TOKEN, process.env.DOUBAO_COOKIE, process.env.DOUBAO_CHAT_URL]) {
+  for (const secret of [process.env.DEEPSEEK_USER_TOKEN, process.env.DOUBAO_COOKIE, process.env.DOUBAO_CHAT_URL, process.env.GEMINI_COOKIE]) {
     if (secret) message = message.replaceAll(secret, "[REDACTED]");
   }
   console.error("[web-ai-mcp] failed to start:", message);

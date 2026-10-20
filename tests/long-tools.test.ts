@@ -10,6 +10,7 @@ import { ProviderError, type WebAIProvider } from "../src/core/provider.js";
 import { registerCommonTools } from "../src/tools/common.js";
 import { registerDeepSeekTools } from "../src/tools/deepseek.js";
 import { registerDoubaoTools } from "../src/tools/doubao.js";
+import { registerGeminiTools } from "../src/tools/gemini.js";
 import { USAGE, dispatchChat } from "../src/tools/guidance.js";
 
 const text = (result: any) => result.content.map((item: any) => item.text).join("\n");
@@ -20,7 +21,7 @@ test("an already-cancelled submission never starts a background website write", 
     { signal: controller.signal, async sendNotification() {} }, new JobManager(), "fixture", async () => { calls++; return { content: [] }; });
   assert.equal(result.isError, true); assert.equal(calls, 0);
 });
-for (const id of ["deepseek", "doubao"] as const) {
+for (const id of ["deepseek", "doubao", "gemini"] as const) {
   test(`${id} background tool acknowledges once, polls without writes and safely resumes the completed session`, async (t) => {
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
@@ -40,7 +41,7 @@ for (const id of ["deepseek", "doubao"] as const) {
     const jobs = new JobManager(); const sessions = new SessionStore();
     const server = new McpServer({ name: "fixture", version: "0" }, { instructions: USAGE });
     registerCommonTools(server, jobs);
-    (id === "deepseek" ? registerDeepSeekTools : registerDoubaoTools)(server, provider, sessions, jobs);
+    (id === "deepseek" ? registerDeepSeekTools : id === "doubao" ? registerDoubaoTools : registerGeminiTools)(server, provider, sessions, jobs);
     const client = new Client({ name: "fixture", version: "0" });
     const [a, b] = InMemoryTransport.createLinkedPair(); await server.connect(a); await client.connect(b);
     t.after(async () => { release(); await client.close(); await server.close(); });
@@ -49,13 +50,16 @@ for (const id of ["deepseek", "doubao"] as const) {
     assert.match(text(await call("webai_usage", {})), /unknown\/expired/);
     const requestId = randomUUID();
     const args = { message: "long", conversation_name: "fixture", background: true, request_id: requestId };
-    const ack = await call(id + "_reasoner", args);
+    const longTool = id === "gemini" ? "gemini_chat" : id + "_reasoner";
+    const otherTool = id === "gemini" ? "gemini_reasoner" : id + "_chat";
+    const ack = await call(longTool, args);
     const jobId = (ack._meta as any).web_ai_job.job_id;
     assert.equal((ack._meta as any).web_ai_job.status, "running");
-    assert.equal(calls.length, 1); assert.equal(calls[0].request.thinking, true);
-    assert.equal((await call(id + "_reasoner", { ...args, message: "changed" })).isError, true);
-    assert.equal((await call(id + "_chat", args)).isError, true, "request ID must not alias a different tool");
-    assert.equal((await call(id + "_reasoner", args))._meta?.web_ai_job && calls.length, 1);
+    assert.equal(calls.length, 1); assert.equal(calls[0].request.thinking, id !== "gemini");
+    assert.equal((await call(longTool, { ...args, message: "changed" })).isError, true);
+    if (id !== "gemini") assert.equal((await call(otherTool, args)).isError, true, "request ID must not alias a different tool");
+    else assert.ok(!(await client.listTools()).tools.some(tool => tool.name === otherTool));
+    assert.equal((await call(longTool, args))._meta?.web_ai_job && calls.length, 1);
     for (let i = 0; i < 3; i++) assert.equal((await call("webai_job_status", { job_id: jobId }))._meta?.web_ai_job && calls.length, 1);
     assert.equal((await call(id + "_chat", { ...args, request_id: randomUUID() })).isError, true);
     release();

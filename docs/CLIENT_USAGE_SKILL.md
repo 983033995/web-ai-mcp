@@ -1,6 +1,6 @@
 ---
 name: web-ai-mcp
-description: 调用 web-ai MCP 的 DeepSeek 或豆包网页聊天与专家思考工具时使用。处理长思考、续聊、超时、后台任务查询和账号限制；不适用于官方 API 或其他代理。
+description: 调用 web-ai MCP 的 DeepSeek、豆包或实验性 Gemini 网页聊天工具时使用。处理长思考、续聊、超时、后台任务查询和账号限制；不适用于官方 API 或其他代理。
 ---
 
 # Web AI MCP 调用规则
@@ -35,6 +35,13 @@ description: 调用 web-ai MCP 的 DeepSeek 或豆包网页聊天与专家思考
 - `webai_job_cancel` 仅取消本机等待，不能撤回网站消息。
 
 网站回复是待验证的建议。命令、版本、参数和删除建议必须结合实际项目或官方资料复核，不照着网页模型建议盲改服务。
+
+## Gemini 默认聊天
+
+- 当前源码提供 `gemini_chat`、`gemini_sessions_list`、`gemini_session_close`，使用网页默认模型；支持后台任务、命名会话和正常重启续聊。
+- 不传 `model`、`thinking`、`show_reasoning`、文件或媒体参数；没有 `gemini_reasoner`。`system_prompt` 是消息文字前缀，不是网站系统角色。
+- 不从网页模型菜单推断 HTTP 能力；登录失效或账号发生变化时停止，手动更新本人 Cookie，不继续使用另一个账号的 key。
+- 网站验证只使用普通、非敏感对话，不在消息中写测试、MCP 或技术标记。
 
 ## 图片和视频下载
 

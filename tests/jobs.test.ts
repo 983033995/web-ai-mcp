@@ -161,7 +161,7 @@ test("expired job status and same-request start cannot replay the operation", as
   const expiredStatus = manager.status(jobId);
   assert.equal(expiredStatus.isError, true);
   assert.match(readText(expiredStatus), /Do not replay/);
-  assert.match(readText(expiredStatus), /deepseek_sessions_list/);
+  assert.match(readText(expiredStatus), /corresponding provider's sessions_list/);
   const repeatedStart = manager.start(requestId, digest("expiring"), operation);
   assert.equal(repeatedStart.isError, true);
   await new Promise((resolve) => setTimeout(resolve, 0));
