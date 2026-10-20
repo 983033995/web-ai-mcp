@@ -19,6 +19,10 @@ The upstream README claims MIT. A repository-root LICENSE file was not present i
 
 DeepSeek website access may be subject to contractual limitations. This project is not endorsed by DeepSeek or any other website AI provider.
 
+## Gemini protocol research
+
+Public protocol research included [HanaokaYuzu/Gemini-API](https://github.com/HanaokaYuzu/Gemini-API) at commit `1ad0d4a93e505e77c79769d78ef2997641f973c8` and own-account browser/HTTP observations on 2026-10-20. That upstream library is AGPL-3.0. It is not installed, imported, bundled, or distributed by this project. The TypeScript Gemini adapter and deterministic fixtures are project-owned implementations of the observed wire protocol; the npm package has no Python or gemini-webapi dependency. This project's MIT license does not relicense the research source or grant Google website access rights.
+
 ## npm distribution
 
 Project-owned code is MIT licensed; see LICENSE. This grant does not cover the third-party WASM or imply website authorization.

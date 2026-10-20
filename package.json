@@ -2,12 +2,12 @@
   "name": "web-ai-mcp",
   "version": "0.4.0",
   "type": "module",
-  "description": "Own-account DeepSeek Web MCP with experimental Doubao HTTP transport",
+  "description": "Own-account DeepSeek Web MCP with experimental Doubao and Gemini website transports",
   "license": "MIT",
   "bin": { "web-ai-mcp": "dist/index.js" },
   "files": [
     "dist/index.js", "dist/core/*.js", "dist/tools/*.js", "dist/providers/index.js",
-    "dist/providers/deepseek/*.js", "dist/providers/doubao/*.js", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
+    "dist/providers/deepseek/*.js", "dist/providers/doubao/*.js", "dist/providers/gemini/*.js", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
     "CONTRIBUTING.md", "AGENTS.md", "docs/", ".env.example"
   ],
   "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
@@ -22,7 +22,7 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "smoke:local": "node scripts/smoke-mcp.mjs && node scripts/smoke-doubao.mjs",
+    "smoke:local": "node scripts/smoke-mcp.mjs && node scripts/smoke-doubao.mjs && node scripts/smoke-gemini.mjs",
     "smoke:long-task": "node scripts/smoke-long-task.mjs",
     "smoke:doubao:live": "tsx scripts/probe-doubao.ts --live",
     "smoke:live": "node scripts/smoke-mcp.mjs --live",

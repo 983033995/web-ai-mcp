@@ -196,8 +196,8 @@ export class JobManager {
     } catch {
       job.result = textResult(
         job.cancelRequested
-          ? "Local cancellation was requested, but the website outcome may be uncertain. Do not replay this request; verify the session with deepseek_sessions_list or doubao_sessions_list."
-          : "The background operation failed or timed out; the website outcome may be uncertain. Do not replay this request; verify the session with deepseek_sessions_list or doubao_sessions_list.",
+          ? "Local cancellation was requested, but the website outcome may be uncertain. Do not replay this request; verify the session with the corresponding provider's sessions_list tool."
+          : "The background operation failed or timed out; the website outcome may be uncertain. Do not replay this request; verify the session with the corresponding provider's sessions_list tool.",
         true,
       );
       job.status = job.cancelRequested ? "cancelled" : "failed";
@@ -247,7 +247,7 @@ export class JobManager {
   }
 
   private unknownJobResult(detail = "Unknown or expired job ID."): JobToolResult {
-    return textResult(`${detail} Do not replay the original request. Use deepseek_sessions_list or doubao_sessions_list and the official website to check state; the local list alone cannot confirm website acceptance.`, true);
+    return textResult(`${detail} Do not replay the original request. Use the corresponding provider's sessions_list tool and the official website to check state; the local list alone cannot confirm website acceptance.`, true);
   }
 
   private cleanup(): void {

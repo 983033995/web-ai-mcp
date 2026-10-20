@@ -6,6 +6,8 @@
 
 通过 MCP，让本机 AI 编程助手调用**你自己的 DeepSeek、豆包网页账号**，进行聊天、深度思考、文件分析和多轮讨论；豆包另支持图片、视频生成。
 
+当前源码另加入 **Gemini 网页聊天、图片和视频生成（实验性）**，支持命名会话、后台任务、只读媒体查询/下载，以及按配置顺序选择本人账号和独立额度冷却。Gemini 尚未包含在已发布的 `web-ai-mcp@0.4.0` 中，请按[源码接入说明](#gemini-接入源码实验功能)使用；能力与实测边界见[验证记录](docs/GEMINI_VALIDATION.md)。
+
 适用于咨询代码、比较方案、持续讨论项目和生成图片/视频的场景。程序通过 npm/npx 安装，作为本机 **stdio MCP server** 运行。v0.2.0 加入实验性豆包网页版接入；v0.1.2 及更早版本只支持 DeepSeek。豆包已完成本人账号的代表性实测，仍受网站风控、额度和私有接口变化影响。验证边界见[风控记录](docs/DOUBAO_RISK_INVESTIGATION.md)和[生成验证](docs/DOUBAO_MEDIA_VALIDATION.md)。
 
 > **本文对应 v0.3.0，新增长聊天后台任务与首次使用指引，npm 实际版本以 registry 为准。** 项目自身代码采用 MIT，通过 GitHub Release / Actions 验证并发布（OIDC，无长期 npm token）。npm 地址用于安装程序，不是远程 MCP 服务地址；使用者无需部署服务器。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。DeepSeek 所需上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
@@ -34,6 +36,7 @@
 | 会话管理 | 已实现，列出或关闭本地会话映射 |
 | 网站搜索 | 未启用，`search_enabled` 固定为 `false` |
 | 豆包（v0.2.0 起） | 实验性快速/专家聊天、可见思考、TXT 分析、可选模型/参数的图片与视频生成、参考图及同会话续聊 |
+| Gemini（当前源码） | 实验性模型选择、三档思考等级、文件分析、图片/视频生成、原生比例、参考素材、后台任务和多账号额度冷却；参考视频生成仍为实验选项 |
 | 其他网站 | 未实现，不可调用 |
 | HTTP / 远程多用户 MCP | 未实现，仅支持本地 stdio |
 
@@ -102,7 +105,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
 
 > 调用 `webai_providers` 查看可用服务，再调用 `deepseek_chat`，询问“请用一句话介绍你能帮我做什么”。
 
-仅配置 DeepSeek 时应发现 9 个工具，仅豆包为 13 个，两者同时配置为 18 个。工具发现说明本地连接成功；收到实际答案才说明当前账号的网站请求成功。
+仅配置 DeepSeek 时应发现 9 个工具，仅豆包为 13 个，两者同时配置为 18 个。当前源码仅配置 Gemini 为 13 个，三者同时配置为 27 个。工具发现说明本地连接成功；收到实际答案才说明当前账号的网站请求成功。
 
 ## 接入 MCP 客户端
 
@@ -403,11 +406,16 @@ WEB_AI_MEDIA_DIR=/absolute/path/to/generated-media
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `DEEPSEEK_USER_TOKEN` | 无 | 使用 DeepSeek 时必填；仅使用豆包时可省略 |
+| `DEEPSEEK_USER_TOKEN` | 无 | 使用 DeepSeek 时必填；仅使用豆包或 Gemini 时可省略 |
 | `DOUBAO_COOKIE` | 无 | 使用豆包时必填，同一次正常聊天请求的完整 Cookie |
 | `DOUBAO_CHAT_URL` | 无 | 使用豆包时必填，带全部查询参数的完整 `POST /chat/completion` URL |
 | `DOUBAO_USER_AGENT` | 无 | 使用豆包时必填，上述同一次请求的 User-Agent |
 | `DOUBAO_TIMEOUT` | `60000` | 豆包整轮操作超时，毫秒；专家/生成/参考图推荐 `120000` |
+| `GEMINI_COOKIE` | 无 | 源码 Gemini 接入必填，本人网站请求 Cookie，须含 `__Secure-1PSID`；账号存在 `__Secure-1PSIDTS` 时同时保留 |
+| `GEMINI_USER_AGENT` | 无 | 与 Cookie 相同浏览器的正常 User-Agent |
+| `GEMINI_TIMEOUT` | `60000` | Gemini 整轮操作超时，毫秒，最大 `600000`；覆盖初始化和流读取 |
+| `GEMINI_ACCOUNTS_FILE` | 未设置 | 多账号替代配置，私有 JSON 文件绝对路径；与单账号 Cookie/UA 互斥 |
+| `GEMINI_COOLDOWN_STORE_PATH` | 会话文件同目录 `gemini-cooldowns.json` | 图片/视频各自冷却记录，仅含账号别名和时间；多进程需共用同一位置 |
 | `DEEPSEEK_TIMEOUT` | `60000` | 正整数，单位毫秒；覆盖单次网站操作的 PoW、上传、解析与响应读取 |
 | `WEB_AI_PROJECT_ROOT` | 服务进程工作目录 | 项目会话存储基准目录，建议使用绝对路径 |
 | `WEB_AI_SESSION_STORE_PATH` | `<项目目录>/.web-ai-mcp/sessions.json` | 覆盖私有会话存储位置，建议使用绝对路径 |
@@ -515,6 +523,89 @@ npx tsx scripts/probe-doubao.ts --env-file /private/path/.env --live --features
 
 此命令直接调用产品 HTTP Provider 并验证同会话标记回忆；失败返回非零退出码，不输出 Cookie、远端 ID 或正文。验证码要求会阻断该客户端后续聊天请求，直到重启 MCP；原网页不一定显示 HTTP 请求的挑战，须通过官方验证界面处理并用明确授权的 HTTP 探测确认恢复。没有自动签名生成、浏览器回退或消息重试。已有请求上下文可能变化，浏览器成功不保证纯 HTTP 可用；本次调查不能认定签名失效就是此前风控的原因。
 
+### Gemini 接入：源码实验功能
+
+此功能使用本人的 `gemini.google.com` 登录状态，通过私有网页接口聊天和生成媒体。不是 Gemini 官方 API，不扫描或自动取得浏览器账号。先按[源码安装](#源码安装与开发)完成构建，再配置本机源码入口；已发布的 `web-ai-mcp@0.4.0` 不包含此功能。
+
+在本人正常登录的 Gemini 页面，从开发者工具 Network 的同一次网站请求取得完整 Cookie 和正常 User-Agent。只在本机私有配置中保存，不把 Cookie、Google 账号或请求上下文发送到聊天、Issue 或 Git。Cookie 须含 `__Secure-1PSID`；若账号有 `__Secure-1PSIDTS`，也一并保留。不要伪造或修改浏览器身份来规避网站限制。
+
+```json
+{
+  "mcpServers": {
+    "web-ai-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/web-ai-mcp/dist/index.js"],
+      "env": {
+        "GEMINI_COOKIE": "YOUR_OWN_GEMINI_COOKIE",
+        "GEMINI_USER_AGENT": "YOUR_NORMAL_BROWSER_USER_AGENT",
+        "GEMINI_TIMEOUT": "120000",
+        "WEB_AI_PROJECT_ROOT": "/absolute/path/to/your-project"
+      }
+    }
+  }
+}
+```
+
+只启用 Gemini 时不需要 DeepSeek token 或 PoW WASM；也可在同一个服务的 `env` 中同时配置其他 provider。初始化只验证配置，发现工具不会向网站发送消息。
+
+| 工具 | 用途 |
+| --- | --- |
+| `gemini_chat` | 聊天；支持 `model`、`thinking_level`、`file_paths`、名称/ID、默认会话和后台任务；`system_prompt` 仅作为文字前缀 |
+| `gemini_models` | 只读查询账号当前可选模型和思考等级；可传 `session_key` 查询该会话绑定账号，不发送聊天 |
+| `gemini_sessions_list` | 只读列出本地 Gemini 会话与状态，不泄露网站标识 |
+| `gemini_session_close` | 删除本地映射，不删除网站历史、不撤回已提交消息 |
+| `gemini_generate_image` | `prompt` 生成图片；可选模型、思考等级、原生比例和 `reference_image_paths` |
+| `gemini_generate_video` | 生成短视频；可选模型、思考等级、横/竖屏、参考图和实验性 `reference_video_paths`；不指定未验证的时长 |
+| `gemini_media_status` | 单次有界只读历史查询，确认已有生成结果；不提交、确认或重发生成 |
+| `gemini_download_media` | 用实际 `session_key` / `media_id` 保存已完成媒体，需 `WEB_AI_MEDIA_DIR`；不提供去水印 |
+| `gemini_accounts` | 只读显示账号顺序及图片/视频各自的冷却来源、到期时间和剩余秒数 |
+
+先读 `webai_usage`，再调用 `gemini_models` 取得当前账号提供的准确模型名称。`gemini_chat` 示例：`{"message":"帮我比较这两种方案。","model":"3.1 Pro","thinking_level":"high","conversation_name":"design-discussion"}`。这里的模型名是实测示例，以账号实时列表为准。没有 `gemini_reasoner`、布尔 `thinking` 或隐藏思考文本输出；`thinking_level` 独立支持 `low`、`medium`、`high`。同一会话可显式切换模型/等级，省略时继承上轮选择；网站可能拒绝某些组合，拒绝后不自动换模型或重发。
+
+聊天的 `file_paths`、生成的 `reference_image_paths` / `reference_video_paths` 必须是 `WEB_AI_ALLOWED_ROOTS` 内的绝对路径。当前支持 UTF-8 TXT、PNG/JPEG/WebP 和 MP4；每次合计最多5个，每个10 MiB，总计20 MiB。图片参考只接受图片，视频参考只接受 MP4 且仅视频生成可用。MP4 上传分析已有实际 MCP 验证；上传作为生成参考不代表网站一定支持重绘、动作复刻或视频编辑，须以实际媒体结果为准。上传内容、文件名、上传标识都不写入会话存储；切到另一个账号时重新上传。
+
+`ratio` 使用网页原生比例字段：图片 `1:1`、`3:4`、`4:3`、`16:9`、`9:16`；视频 `16:9`、`9:16`。不是任意分辨率控制，实际资源或预览尺寸仍由网站决定。参考图生成示例：`{"prompt":"保留主体，背景改为浅绿色。","model":"3.1 Pro","thinking_level":"medium","ratio":"3:4","reference_image_paths":["/absolute/allowed/reference.jpg"]}`。
+
+聊天与两种生成均可加入 `"background":true` 和新的 UUID `request_id`，随后只读查询 `webai_job_status`。同样的 key 可在 MCP 正常重启后续聊；读取完后台结果后再重启。媒体完成必须有实际资源；文字承诺或只收到生成占位不能当作成功下载。
+
+每轮在发送消息前重新读取网站登录上下文。只持久化经过校验的网站会话/回复/候选标识、账号别名和账号哈希，不保存 Cookie、请求 token、邮箱、消息或回复。已有会话固定原账号；未知、关闭或不确定的 key 不会悄悄新建会话。验证码、一般 HTTP 429、网络异常或登录失效时停止，不自动换号或重发；本版本不自动轮换 Cookie。Chromium 设备绑定凭据可能限制 Cookie 的长期可用性，实际以本人账号为准。
+
+多账号时，只设置 `GEMINI_ACCOUNTS_FILE`，删除同一 MCP `env` 中的 `GEMINI_COOKIE` / `GEMINI_USER_AGENT`。文件须为普通文件、POSIX 权限 `0600`（Windows 使用私有访问权限）；建议放在仓库外或已忽略的 `.web-ai-mcp/` 目录，不提交到 Git。例如：
+
+```json
+{
+  "accounts": [
+    {
+      "id": "personal-1",
+      "cookie": "YOUR_OWN_FIRST_ACCOUNT_COOKIE",
+      "userAgent": "YOUR_NORMAL_BROWSER_USER_AGENT",
+      "cooldownMinutes": { "image": 60, "video": 1440 }
+    },
+    {
+      "id": "personal-2",
+      "cookie": "YOUR_OWN_SECOND_ACCOUNT_COOKIE",
+      "userAgent": "YOUR_NORMAL_BROWSER_USER_AGENT",
+      "cooldownMinutes": { "image": 60, "video": 1440 }
+    }
+  ]
+}
+```
+
+生成请求无需显式指定账号，按数组顺序选择当前可用项。只有官网明确拒绝本次生成、确认额度已用尽且尚未出现生成候选/进行中状态时，才记录该账号对应能力的冷却并尝试下一个账号；每个账号最多尝试一次，全部冷却则报错。已有会话不会跨账号迁移，也不会向其他账号发送上轮上下文。普通聊天使用首个账号，续聊使用绑定账号。
+
+官网返回的可靠恢复时间优先；`cooldownMinutes` 是你配置的本地退避窗口，以上数字仅为示例，**不是 Gemini 的真实配额或恢复周期**。没有可靠时间且未配置退避时，保持“恢复时间未知”的阻断状态，不猜时间。到期在下一次查询/调用时自动恢复资格，优先顺序仍按配置；不会后台生成或重放旧任务。冷却记录独立于 Cookie，重启不能清除它；只读 `gemini_accounts` 不请求网站。不同项目的 MCP 若共用同一账号，应显式共用 `GEMINI_COOLDOWN_STORE_PATH`，避免重复提交；状态文件损坏或锁异常时拒绝生成。
+
+需要网络代理时，建议 Node 24+，在同一 `env` 中显式配置 `NODE_USE_ENV_PROXY="1"`、`HTTPS_PROXY="http://127.0.0.1:你的本机代理端口"`。Node 的 `fetch` 不自动继承系统代理设置；旧版 Node 对环境代理的支持不同。服务不会扫描代理、关闭 TLS 校验或自动更改系统设置。
+
+授权向本人网站发送三条普通故事消息，验证实际 MCP 后台、续聊和重启恢复：
+
+```bash
+npx tsx scripts/probe-gemini.ts --env-file /private/path/.env --live
+```
+
+脚本不输出凭据、网站 ID 或正文，不自动重发；失败时保留本机 `.validation-gemini-live-*` 下的私有会话记录。未通过的 `processSession` 通道不会被用作回退。详见[验证记录](docs/GEMINI_VALIDATION.md)。
+
 ## 会话持久化与恢复
 
 服务把本地 UUID、用户指定的名称、网站会话与父消息关联、时间戳和默认绑定保存在项目私有存储中，**不保存 token、对话正文、文件内容或从消息生成的标题**。列表不暴露网站原始 ID。
@@ -594,7 +685,7 @@ npx -y @modelcontextprotocol/inspector --cli node dist/index.js \
   -e DEEPSEEK_USER_TOKEN=local-discovery-placeholder --method tools/list
 ```
 
-仅 DeepSeek 为 9 个工具，仅豆包为 13 个，两者同时配置为 18 个。工具发现成功不等于真实聊天成功。
+仅 DeepSeek 为 9 个工具，仅豆包为 13 个，两者同时配置为 18 个；当前源码仅 Gemini 为 13 个，三者为 27 个。工具发现成功不等于真实聊天成功。
 
 ### 可选：本人账号网站 smoke
 
@@ -635,6 +726,7 @@ node --env-file=.env scripts/smoke-mcp.mjs --live --files
 | `src/tools/deepseek.ts` | 工具参数、文件边界与返回格式 |
 | `src/providers/deepseek/` | 网站认证、请求、PoW、SSE 与错误处理 |
 | `src/providers/doubao/` | 实验性纯 HTTP 协议、SSE、配置和错误处理 |
+| `src/providers/gemini/` | 实验性 Gemini 默认模型网页请求、流帧、登录与账号绑定 |
 | `scripts/` | 上游导入、WASM 复制与 smoke 验证 |
 | `tests/` | 确定性测试 |
 

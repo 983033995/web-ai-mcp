@@ -22,10 +22,12 @@ try {
     assert.ok(path === "package.json" || path === ".env.example" || path.startsWith("dist/") ||
       path.startsWith("docs/") || ["README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CONTRIBUTING.md", "AGENTS.md"].includes(path), path);
   }
-  for (const path of ["dist/index.js", "dist/core/files.js", "dist/providers/doubao/download.js", "dist/core/jobs.js", "dist/tools/common.js", "dist/tools/guidance.js", "dist/providers/deepseek/wasm.js", "dist/providers/doubao/index.js", "dist/providers/doubao/web-client.js", "dist/providers/doubao/sse.js", "dist/providers/doubao/errors.js", "dist/providers/doubao/upload.js", "dist/providers/doubao/media.js", "dist/tools/doubao.js", "LICENSE", "THIRD_PARTY_NOTICES.md"]) {
+  for (const path of ["dist/index.js", "dist/core/files.js", "dist/providers/doubao/download.js", "dist/core/jobs.js", "dist/tools/common.js", "dist/tools/guidance.js", "dist/providers/deepseek/wasm.js", "dist/providers/doubao/index.js", "dist/providers/doubao/web-client.js", "dist/providers/doubao/sse.js", "dist/providers/doubao/errors.js", "dist/providers/doubao/upload.js", "dist/providers/doubao/media.js", "dist/tools/doubao.js", "dist/providers/gemini/index.js", "dist/providers/gemini/web-client.js", "dist/providers/gemini/stream.js", "dist/tools/gemini.js", "LICENSE", "THIRD_PARTY_NOTICES.md"]) {
     assert.ok(paths.includes(path), path);
   }
   const tarball = join(temporary, pack.filename);
+  for (const path of ["dist/core/media-download.js", "dist/providers/gemini/accounts.js", "dist/providers/gemini/cooldown.js",
+    "dist/providers/gemini/media.js", "dist/providers/gemini/history.js"]) assert.ok(paths.includes(path), path);
   writeFileSync(join(temporary, "package.json"), JSON.stringify({ private: true, name: "package-smoke" }));
   run(["install", "--ignore-scripts", "--omit=dev", "--no-audit", "--no-fund", "--registry=https://registry.npmjs.org", tarball], { cwd: temporary });
   const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
@@ -47,6 +49,7 @@ try {
     WEB_AI_SMOKE_CWD: temporary };
   execFileSync(process.execPath, [join(root, "scripts/smoke-mcp.mjs")], { cwd: root, env, stdio: "inherit", timeout: 180_000 });
   execFileSync(process.execPath, [join(root, "scripts/smoke-doubao.mjs")], { cwd: root, env, stdio: "inherit", timeout: 180_000 });
+  execFileSync(process.execPath, [join(root, "scripts/smoke-gemini.mjs")], { cwd: root, env, stdio: "inherit", timeout: 180_000 });
   execFileSync(process.execPath, [join(root, "scripts/smoke-long-task.mjs")], { cwd: root,
     env: { ...env, WEB_AI_LONG_SMOKE_DELAY_MS: "75" }, stdio: "inherit", timeout: 180_000 });
   if (process.env.WEB_AI_PACKAGE_TARBALL_DIR) {
