@@ -254,7 +254,7 @@ export function registerGeminiTools(
             try {
               const request: GeminiMediaGenerationRequest = {
                 kind, prompt: args.prompt, signal,
-                onPendingSession: remote => { sessions.update(record.key, remote); sessions.beginTurn(record.key); },
+                onPendingSession: remote => { sessions.update(record.key, remote, "pending"); },
                 ...(args.model ? { model: args.model } : {}),
                 ...(args.thinking_level ? { thinkingLevel: args.thinking_level } : {}),
                 ...(args.ratio ? { ratio: args.ratio } : {}),

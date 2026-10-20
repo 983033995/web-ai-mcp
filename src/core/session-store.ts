@@ -163,11 +163,11 @@ export class SessionStore {
   cancelTurn(key: string): void {
     this.mutate(() => { const record = this.sessions.get(key); if (record) record.state = "active"; });
   }
-  update(key: string, remote: RemoteSession): void {
+  update(key: string, remote: RemoteSession, state: "active" | "pending" = "active"): void {
     this.mutate(() => {
       const record = this.sessions.get(key);
       if (!record) throw new Error("Session was removed during request");
-      record.remote = remote; record.state = "active"; record.lastUsedAt = this.now();
+      record.remote = remote; record.state = state; record.lastUsedAt = this.now();
     });
   }
 
