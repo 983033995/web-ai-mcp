@@ -27,6 +27,13 @@ export const configurationError = () => new GeminiWebError("configuration_error"
 export const authenticationError = (uncertain = false) => new GeminiWebError("authentication_error",
   "Gemini Web is not signed in with a usable account. Refresh the own-account login in a browser and update local credentials; do not send cookies in chat.", uncertain);
 
+/** Exact website failure notice observed in an otherwise complete text candidate. */
+export function assertGeminiAnswer(content: string): void {
+  if (content.trim() === "Sorry, something went wrong. Please try your request again.") {
+    throw new GeminiWebError("website_error", "Gemini returned its website failure notice instead of an answer; no automatic retry was performed", true);
+  }
+}
+
 export const captchaError = (uncertain = false) => new GeminiWebError("captcha_required",
   "Gemini Web requested an account or traffic verification. This client has stopped sending messages; complete the official verification manually, refresh the local web session, and restart the MCP.", uncertain);
 

@@ -24,7 +24,7 @@ function result(reply: GeminiSelectedReply & { mediaKind?: "image" | "video"; me
 /** Experimental own-account Gemini Web adapter. */
 export class GeminiWebProvider implements WebAIProvider {
   readonly id = "gemini";
-  readonly displayName = "Gemini Web (experimental HTTP)";
+  readonly displayName = "Gemini Web (experimental)";
   readonly capabilities = { chat: true, thinking: true, files: true, webSearch: false, sessionResume: true,
     imageGeneration: true, videoGeneration: true } as const;
   private readonly client: GeminiWebClient;

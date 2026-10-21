@@ -36,6 +36,7 @@ const providerMessages: Readonly<Record<string, string>> = {
   invalid_response: "Gemini website returned an invalid or incomplete response.",
   malformed_sse: "Gemini website returned malformed or truncated stream frames.",
   stream_error: "Gemini website reported a stream error.",
+  browser_error: "Gemini browser chat did not complete. Inspect the configured ego-browser Page and its control state before further writes; no automatic retry or HTTP fallback was performed.",
   website_error: "Gemini website rejected the request; upstream details are not exposed.",
   quota_exhausted: "Eligible Gemini accounts are cooling down for this capability, or this conversation is pinned to an exhausted account. Read gemini_accounts for local cooldown state.",
   cooldown_state_error: "Gemini cooldown state could not be read or saved safely. Generation is blocked; preserve the state file and check its permissions or lock.",
@@ -107,7 +108,7 @@ export function registerGeminiTools(
     (error instanceof GeminiQuotaError ? "\n" + JSON.stringify({ cooldown_until: error.resetAtMs ? new Date(error.resetAtMs).toISOString() : null }) : ""), true);
   const { show_reasoning: _showReasoning, ...fields } = chatFields;
   server.registerTool("gemini_chat", {
-    description: "Chat through your own Gemini WEBSITE (experimental HTTP). Selection priority: explicit model/thinking_level, saved session selection, GEMINI_DEFAULT_MODEL/GEMINI_DEFAULT_THINKING_LEVEL, website model route/Low. Selections are validated against the account; file_paths uploads files from WEB_AI_ALLOWED_ROOTS. No web search. system_prompt is a plain text prefix, not a website system role." + CHAT_DESCRIPTION,
+    description: "Chat through your own Gemini WEBSITE (experimental). An explicitly configured browserChatSpaceId uses the logged-in browser's native UI for chat and model discovery; otherwise HTTP is used. There is no automatic transport fallback. Selection priority: explicit model/thinking_level, saved session selection, GEMINI_DEFAULT_MODEL/GEMINI_DEFAULT_THINKING_LEVEL, website model route/Low. Selections are validated against the account; file_paths uploads files from WEB_AI_ALLOWED_ROOTS. No web search. system_prompt is a plain text prefix, not a website system role." + CHAT_DESCRIPTION,
     inputSchema: z.object({ ...fields,
       model: z.string().trim().min(1).max(160).optional(),
       thinking_level: z.enum(["low", "medium", "high"]).optional(),

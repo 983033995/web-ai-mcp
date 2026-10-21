@@ -1,4 +1,4 @@
-import { GeminiMediaRecoveryError, GeminiWebError } from "./errors.js";
+import { assertGeminiAnswer, GeminiMediaRecoveryError, GeminiWebError } from "./errors.js";
 import { GeminiQuotaError, type GeminiMediaKind } from "./cooldown.js";
 import { extractGeminiCandidateMedia } from "./media.js";
 import type { GeneratedMedia } from "../../core/provider.js";
@@ -267,6 +267,7 @@ export async function parseGeminiStream(
       id(state.conversationId, "c_") && id(state.replyId, "r_") && id(state.candidateId, "rc_"));
     if (expectedLength !== undefined || !terminal || !state.records || (!state.content && !state.media.length && !acceptedDeferredMedia) ||
         (state.endRecordSeen && state.totalBytes !== bytes)) throw malformed();
+    if (!options.quotaKind) assertGeminiAnswer(state.content);
     return { content: state.content, conversationId: state.conversationId, replyId: state.replyId,
       candidateId: state.candidateId, ...(state.media.length ? { media: state.media } : {}),
       ...(state.completionStatus === undefined ? {} : { completionStatus: state.completionStatus }) };

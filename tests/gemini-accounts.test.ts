@@ -234,6 +234,19 @@ test("loads ordered accounts from a private file and does not expose credentials
   });
 });
 
+test("browser chat requires an explicit positive space ID and an email owner", async t => {
+  const root = await tempDir(t), file = join(root, "accounts.json");
+  const owner = account("owner@example.test");
+  await writeFile(file, JSON.stringify({ accounts: [{ ...owner, browserChatSpaceId: 15 }] }), { mode: 0o600 });
+  assert.equal((await loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: file }))[0].browserChatSpaceId, 15);
+  for (const value of [0, -1, 1.5, "15", null]) {
+    await writeFile(file, JSON.stringify({ accounts: [{ ...owner, browserChatSpaceId: value }] }), { mode: 0o600 });
+    await assert.rejects(loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: file }), (e: any) => e.code === "configuration_error");
+  }
+  await writeFile(file, JSON.stringify({ accounts: [{ ...account("alias"), browserChatSpaceId: 15 }] }), { mode: 0o600 });
+  await assert.rejects(loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: file }), (e: any) => e.code === "configuration_error");
+});
+
 test("email account IDs load in order, preserve pinned media and persist independent cooldowns", async t => {
   const root = await tempDir(t), path = join(root, "accounts.json"), calls: string[] = [];
   const ids = ["owner.first@example.test", "owner+second@example.test"];

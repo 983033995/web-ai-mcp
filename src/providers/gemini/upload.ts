@@ -67,7 +67,7 @@ function fileMime(name: string, buffer: Buffer): string | undefined {
   return undefined;
 }
 
-function validateFiles(files: FileInput[]): ValidatedFile[] {
+export function validateGeminiFiles(files: FileInput[]): ValidatedFile[] {
   if (!Array.isArray(files) || files.length < 1 || files.length > MAX_FILES) {
     throw uploadError("invalid_file", "Select between one and five supported Gemini files");
   }
@@ -237,7 +237,7 @@ async function uploadOne(file: ValidatedFile, options: GeminiUploadOptions, sign
 
 /** Upload already-authorized in-memory files to Gemini Web, without credentials or disk access. */
 export async function uploadGeminiFiles(files: FileInput[], options: GeminiUploadOptions): Promise<GeminiUploadedFile[]> {
-  const validated = validateFiles(files);
+  const validated = validateGeminiFiles(files);
   const operation = makeOperation(options);
   const results: GeminiUploadedFile[] = [];
   try {
