@@ -11,7 +11,10 @@ export interface GeminiAccountConfig {
 }
 
 const MAX_ACCOUNTS_FILE_BYTES = 1024 * 1024;
-const validId = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value);
+/** Local aliases remain supported; owners may explicitly use their account email as the ID. */
+export const GEMINI_ACCOUNT_ID_PATTERN = /^(?:[A-Za-z0-9][A-Za-z0-9._-]{0,63}|[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+)(?![\s\S])/;
+export const validGeminiAccountId = (value: unknown): value is string => typeof value === "string" &&
+  value.length <= 254 && GEMINI_ACCOUNT_ID_PATTERN.test(value);
 const ownSessionCookie = (value: string): boolean => !/[\r\n]/.test(value) && value.split(";").some(part => {
   const index = part.indexOf("=");
   return index > 0 && part.slice(0, index).trim() === "__Secure-1PSID" && part.slice(index + 1).trim().length > 0;
@@ -25,7 +28,7 @@ function validateAccount(value: unknown): GeminiAccountConfig | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   if (Object.keys(record).some(key => !["id", "cookie", "userAgent", "cooldownMinutes"].includes(key))) return undefined;
-  if (!validId(record.id) || typeof record.cookie !== "string" || record.cookie.length > 64 * 1024 || !ownSessionCookie(record.cookie) ||
+  if (!validGeminiAccountId(record.id) || typeof record.cookie !== "string" || record.cookie.length > 64 * 1024 || !ownSessionCookie(record.cookie) ||
       typeof record.userAgent !== "string" || !record.userAgent.trim() || record.userAgent.length > 1024 || /[\r\n\u0000]/.test(record.userAgent)) return undefined;
 
   let cooldownMinutes: GeminiAccountConfig["cooldownMinutes"];
@@ -94,7 +97,7 @@ export async function loadGeminiAccounts(env: NodeJS.ProcessEnv = process.env): 
     const accounts = rawAccounts.map(validateAccount);
     if (accounts.some(account => !account)) throw configurationError();
     const loaded = accounts as GeminiAccountConfig[];
-    if (new Set(loaded.map(account => account.id)).size !== loaded.length) throw configurationError();
+    if (new Set(loaded.map(account => account.id.includes("@") ? account.id.toLowerCase() : account.id)).size !== loaded.length) throw configurationError();
     return loaded;
   }
   if (!legacyCookie && !legacyUserAgent) return [];

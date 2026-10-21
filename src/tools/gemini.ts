@@ -10,6 +10,7 @@ import { GEMINI_THINKING_LEVELS, type GeminiModelCatalog } from "../providers/ge
 import { downloadMediaFile, validateMediaDirectory } from "../core/media-download.js";
 import { geminiMediaURL } from "../providers/gemini/media.js";
 import { geminiDefaults } from "./defaults.js";
+import { GEMINI_ACCOUNT_ID_PATTERN } from "../providers/gemini/accounts.js";
 
 const textResult = (text: string, error = false) => ({
   content: [{ type: "text" as const, text }],
@@ -285,7 +286,7 @@ export function registerGeminiTools(
     if (recovery.recoverMedia) server.registerTool("gemini_recover_media", {
       description: "Recover EXISTING generated media from an owner-provided Gemini conversation URL when the original key was lost or closed. Reads history only; never generates/retries or re-enables a blocked conversation. Returns a media-only session_key that rejects chat/generation. account_id selects the original configured account, defaults to the first; never searches or switches accounts on failure.",
       inputSchema: z.object({ conversation_url: z.string().regex(/^https:\/\/gemini\.google\.com\/app\/[a-f0-9]{16}$/),
-        kind: z.enum(["image", "video"]), account_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional() }).strict(),
+        kind: z.enum(["image", "video"]), account_id: z.string().max(254).regex(GEMINI_ACCOUNT_ID_PATTERN).optional() }).strict(),
       annotations: { readOnlyHint: true },
     }, async ({ conversation_url, kind, account_id }, extra) => {
       try {

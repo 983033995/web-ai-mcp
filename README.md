@@ -605,9 +605,9 @@ npx tsx scripts/probe-doubao.ts --env-file /private/path/.env --live --features
 
 聊天与两种生成均可加入 `"background":true` 和新的 UUID `request_id`，随后只读查询 `webai_job_status`。同样的 key 可在 MCP 正常重启后续聊；读取完后台结果后再重启。媒体完成必须有实际资源；文字承诺或只收到生成占位不能当作成功下载。
 
-每轮在发送消息前重新读取网站登录上下文。只持久化经过校验的网站会话/回复/候选标识、账号别名和账号哈希，不保存 Cookie、请求 token、邮箱、消息或回复。已有会话固定原账号；未知、关闭或不确定的 key 不会悄悄新建会话。验证码、一般 HTTP 429、网络异常或登录失效时停止，不自动换号或重发；本版本不自动轮换 Cookie。Chromium 设备绑定凭据可能限制 Cookie 的长期可用性，实际以本人账号为准。
+每轮在发送消息前重新读取网站登录上下文。只持久化经过校验的网站会话/回复/候选标识、配置的账号 ID 和账号哈希，不保存 Cookie、请求 token、消息或回复。账号 ID 默认可用本地别名；若本人明确选择邮箱作为 ID，该邮箱会出现在私有会话/冷却记录和工具结果中，不再是匿名标识。已有会话固定原账号；未知、关闭或不确定的 key 不会悄悄新建会话。验证码、一般 HTTP 429、网络异常或登录失效时停止，不自动换号或重发；本版本不自动轮换 Cookie。Chromium 设备绑定凭据可能限制 Cookie 的长期可用性，实际以本人账号为准。
 
-多账号时，只设置 `GEMINI_ACCOUNTS_FILE`，删除同一 MCP `env` 中的 `GEMINI_COOKIE` / `GEMINI_USER_AGENT`。文件须为普通文件、POSIX 权限 `0600`（Windows 使用私有访问权限）；建议放在仓库外或已忽略的 `.web-ai-mcp/` 目录，不提交到 Git。例如：
+多账号时，只设置 `GEMINI_ACCOUNTS_FILE`，删除同一 MCP `env` 中的 `GEMINI_COOKIE` / `GEMINI_USER_AGENT`。文件须为普通文件、POSIX 权限 `0600`（Windows 使用私有访问权限）；建议放在仓库外或已忽略的 `.web-ai-mcp/` 目录，不提交到 Git。`id` 可用原有的1–64字符别名，也可用本人账号邮箱（最多254字符），但必须唯一；邮箱 ID 按大小写不敏感检查重复。更改既有 ID 时须在 MCP 空闲并有备份的前提下，同步迁移原会话的 `accountId` 和冷却记录，不能仅改账号文件而丢失旧绑定。同一账号的不同浏览器登录不应作为独立额度账号重复配置。例如：
 
 ```json
 {
