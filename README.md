@@ -197,6 +197,39 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 
 使用相同 npx 启动参数和 `env`；配置文件位置、外层字段及启用方式以客户端文档为准。这是本机 stdio 配置，不是 HTTP MCP 地址。桌面客户端找不到 `npx` 时，把 `command` 换成本机 npx 可执行文件路径；某些 Windows 客户端需要填写 `npx.cmd`。
 
+### 默认模型与思考配置（当前源码）
+
+在 MCP 服务配置的 `env` 或显式加载的 `--env-file` 中设置下列可选项。服务器启动时读取并校验，修改后重连 MCP；不设置或留空保持内置行为。已启用 Provider 的未知豆包模型、非法模式或思考等级会使 MCP 启动失败，不静默降级。Gemini 模型名称在实际调用时继续按所选账号的 `gemini_models` 列表校验，不会为了配置检查发送聊天或生成。
+
+| 环境参数 | 可用值 / 含义 | 未配置时 |
+| --- | --- | --- |
+| `DEEPSEEK_DEFAULT_THINKING` | `true` / `false`；聊天与文件分析默认思考开关 | `false` |
+| `DOUBAO_DEFAULT_MODE` | `quick` / `expert`；聊天与 TXT 分析默认模式 | `quick` |
+| `DOUBAO_DEFAULT_IMAGE_MODEL` | `Seedream 5.0 Flash`、`Seedream 5.0 Pro`、`Seedream 4.5`、`Seedream 4.0` | `Seedream 5.0 Flash` |
+| `DOUBAO_DEFAULT_VIDEO_MODEL` | `Seedance 2.0 Fast`、`Seedance 2.5`、`Seedance 2.0`、`Seedance 2.0 Mini` | `Seedance 2.0 Fast` |
+| `GEMINI_DEFAULT_MODEL` | `gemini_models` 返回的准确模型名称，作为通用模型默认值 | 不指定具体版本，使用网页默认路由 |
+| `GEMINI_DEFAULT_IMAGE_MODEL` | 生图专用默认模型，优先于通用默认模型 | 回退到 `GEMINI_DEFAULT_MODEL` |
+| `GEMINI_DEFAULT_VIDEO_MODEL` | 视频专用默认模型，优先于通用默认模型 | 回退到 `GEMINI_DEFAULT_MODEL` |
+| `GEMINI_DEFAULT_THINKING_LEVEL` | `low` / `medium` / `high`；聊天、文件和媒体工具默认等级 | `low` |
+
+例如，在现有 MCP 的 `env` 中合并以下字段，保留已有启动命令和账号配置：
+
+```json
+{
+  "DEEPSEEK_DEFAULT_THINKING": "true",
+  "DOUBAO_DEFAULT_MODE": "expert",
+  "DOUBAO_DEFAULT_IMAGE_MODEL": "Seedream 5.0 Pro",
+  "DOUBAO_DEFAULT_VIDEO_MODEL": "Seedance 2.5",
+  "GEMINI_DEFAULT_THINKING_LEVEL": "high"
+}
+```
+
+每次调用显式传入的 `model`、`mode`、`thinking` 或 `thinking_level` 优先于环境默认值。例如上面设置豆包 `expert` 后，`doubao_chat` 仍可用 `"mode":"quick"` 或 `"thinking":false` 单次关闭。`deepseek_reasoner` 和 `doubao_reasoner` 始终开启对应思考模式，不受默认关闭配置影响；`show_reasoning` 仅控制返回文本的显示，不改变思考强度。DeepSeek 未实现具体模型版本选择，豆包聊天也没有任意模型名或三档思考强度配置。
+
+Gemini 的选择优先级是 **本次显式参数 → 会话已保存的选择 → 本次能力专用默认模型 → 通用默认模型 → 网页默认路由**。思考等级同理，最后回退到 Low。重启或修改默认值不会替换已有会话保存的模型/等级；不兼容、未知或不确定的会话仍按原规则拒绝，不新建会话绕过。生图/视频的模型与思考组合能否完成媒体，以网站返回的实际资源为准。
+
+这些配置只作用于已启用的 Provider，不会自动启用缺少账号凭据的网站；错误默认值不会打印配置内容或凭据。默认值不写入全局网页偏好，也不改变其他客户端的设置。
+
 ## 工具与调用示例
 
 ### 首次使用与长时间思考（v0.3.0 起）

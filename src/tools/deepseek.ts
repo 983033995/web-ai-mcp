@@ -7,6 +7,7 @@ import { ProviderError } from "../core/provider.js";
 import type { SessionStore } from "../core/session-store.js";
 import type { JobManager } from "../core/jobs.js";
 import { CHAT_DESCRIPTION, chatFields, dispatchChat, failureDetails } from "./guidance.js";
+import { deepseekDefaults } from "./defaults.js";
 
 const textResult = (text: string, error = false) => ({
   content: [{ type: "text" as const, text }],
@@ -37,6 +38,7 @@ function formatAnswer(result: ProviderResult, key?: string, showReasoning = fals
 export function registerDeepSeekTools(
   server: McpServer, provider: WebAIProvider, sessions: SessionStore, jobs?: JobManager
 ): void {
+  const defaults = deepseekDefaults();
   const sendChat = async (
     message: string,
     options: { key?: string; conversationId?: string; name?: string; makeDefault?: boolean; systemPrompt?: string; thinking: boolean; showReasoning: boolean; signal: AbortSignal }
@@ -84,14 +86,14 @@ export function registerDeepSeekTools(
 
   server.tool(
     "deepseek_chat",
-    "Chat through DeepSeek WEBSITE. make_default binds successful project conversations." + CHAT_DESCRIPTION,
+    "Chat through DeepSeek WEBSITE. Omitted thinking uses DEEPSEEK_DEFAULT_THINKING (built-in false). make_default binds successful project conversations." + CHAT_DESCRIPTION,
     {
       ...chatFields,
       thinking: z.boolean().optional(),
     },
     async (args, extra) => dispatchChat(args, extra, jobs, "deepseek_chat", signal => sendChat(args.message, {
       key: args.session_key, conversationId: args.conversation_id, name: args.conversation_name, makeDefault: args.make_default,
-      systemPrompt: args.system_prompt, thinking: args.thinking ?? false, showReasoning: args.show_reasoning ?? false, signal
+      systemPrompt: args.system_prompt, thinking: args.thinking ?? defaults.thinking, showReasoning: args.show_reasoning ?? false, signal
     }))
   );
 
@@ -118,7 +120,7 @@ export function registerDeepSeekTools(
         if (!provider.analyzeFiles) throw new Error("This provider does not support file analysis");
         const files = await readAllowedFiles(file_paths, extra.signal);
 
-        const result = await provider.analyzeFiles(files, instruction, thinking ?? false, extra.signal);
+        const result = await provider.analyzeFiles(files, instruction, thinking ?? defaults.thinking, extra.signal);
         const record = result.remoteSession ? sessions.put({
           providerId: provider.id, remote: result.remoteSession, title: instruction.slice(0, 80)
         }) : undefined;
