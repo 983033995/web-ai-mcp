@@ -1,5 +1,5 @@
 import type { GeneratedMedia } from "../../core/provider.js";
-import { GeminiMediaQuotaError, GeminiWebError } from "./errors.js";
+import { assertGeminiAnswer, GeminiMediaQuotaError, GeminiWebError } from "./errors.js";
 import { extractGeminiCandidateMedia, isGeminiMediaFailure, isGeminiMediaQuota, pendingGeminiMedia } from "./media.js";
 
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -178,6 +178,27 @@ async function readHistoryRecords(
   }
 
   return rpcRecords;
+}
+
+/** Read an exact visible text reply, including its authoritative candidate lineage. */
+export async function parseGeminiTextHistory(body: ReadableStream<Uint8Array>, signal: AbortSignal,
+  replyId: string, candidateId?: string): Promise<{ content: string; replyId: string; candidateId: string }> {
+  for (const record of await readHistoryRecords(body, signal)) {
+    if (!Array.isArray(record[0]) || record[0].length > 20) throw malformed();
+    for (const turn of record[0]) {
+      if (nested(turn, [0, 1]) !== replyId) continue;
+      const candidates = nested(turn, [3, 0]);
+      if (!Array.isArray(candidates) || candidates.length > 8) throw malformed();
+      const selected = candidateId ? candidates.filter(c => Array.isArray(c) && c[0] === candidateId) : candidates;
+      if (selected.length !== 1) throw new GeminiWebError("session_state_error", "The browser reply candidate is missing or ambiguous");
+      const candidate = selected[0], id = candidate[0], content = candidate[1]?.[0];
+      if (typeof id !== "string" || !/^rc_[A-Za-z0-9_-]{1,253}$/.test(id) || typeof content !== "string") throw malformed();
+      if (candidate[8]?.[0] !== 2 || !content.trim()) throw new GeminiWebError("history_not_found", "Gemini has not completed the requested text reply");
+      assertGeminiAnswer(content);
+      return { content, replyId, candidateId: id };
+    }
+  }
+  throw new GeminiWebError("history_not_found", "Gemini has not published the requested text reply");
 }
 
 /** Explicit recovery from an owner-provided conversation URL, never a new generation. */

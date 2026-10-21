@@ -213,6 +213,44 @@ test("anonymous or expired initialization fails before posting a message", async
   }
 });
 
+test("same-site response cookies update subsequent requests without replay, and unrelated scopes are ignored", async () => {
+  const sent: string[] = [];
+  let writes = 0;
+  const client = new GeminiWebClient(cookie + "; remove=old", { baseUrl: "http://127.0.0.1", userAgent,
+    fetch: async (input, init) => {
+      sent.push(new Headers(init?.headers).get("Cookie")!);
+      if (new URL(String(input)).pathname === "/app") {
+        const headers = new Headers({ "Content-Type": "text/html" });
+        for (const value of ["fresh=new=value; Path=/; HttpOnly", "remove=; Path=/; Max-Age=0", "hostile=secret; Domain=example.test; Path=/",
+          "publicsuffix=secret; Domain=com; Path=/", "scoped=secret; Path=/other", "secure=secret; Secure; Path=/"]) headers.append("Set-Cookie", value);
+        return new Response(html(), { headers });
+      }
+      writes++;
+      return stream("answer", { conversationId: "c_one", replyId: "r_one", candidateId: "rc_one" });
+    } });
+  assert.equal((await client.chat({ message: "hello", thinking: false })).content, "answer");
+  assert.equal(writes, 1);
+  assert.match(sent[1], /fresh=new=value/);
+  assert.ok(!/remove=|hostile=|scoped=|secure=|publicsuffix=/.test(sent[1]));
+  assert.ok(sent[1].includes("__Secure-1PSID=fixture-session"));
+});
+
+test("secure Google response cookies remain scoped to the website and are used on the next operation", async () => {
+  const sent: string[] = [];
+  const client = new GeminiWebClient(cookie, { userAgent, fetch: async (_input, init) => {
+    sent.push(new Headers(init?.headers).get("Cookie")!);
+    const headers = new Headers({ "Content-Type": "text/html" });
+    headers.append("Set-Cookie", "__Secure-1PSIDCC=fresh; Domain=.google.com; Secure; Path=/");
+    headers.append("Set-Cookie", "__Host-invalid=secret; Domain=.google.com; Secure; Path=/");
+    headers.append("Set-Cookie", "unrelated=secret; Domain=usercontent.google.com; Secure; Path=/");
+    headers.append("Set-Cookie", "expired=old; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/");
+    return new Response("Sign in to continue", { headers });
+  } });
+  for (let i = 0; i < 2; i++) await assert.rejects(client.getModels(), (e: any) => e.code === "authentication_error");
+  assert.ok(sent[1].includes("__Secure-1PSIDCC=fresh"));
+  assert.ok(!/invalid=|unrelated=|expired=/.test(sent[1]));
+});
+
 for (const status of [401, 403, 429, 500]) {
   test(`Gemini HTTP ${status} is redacted and never retried`, async () => {
     let writes = 0;
@@ -240,6 +278,20 @@ test("changed Google account rejects continuation before the website write", asy
   const prior: RemoteSession = { conversationId: "c_previous", replyId: "r_previous", candidateId: "rc_previous", accountHash };
   await assert.rejects(client.chat({ message: "continue", thinking: false }, prior), (error: any) => error.code === "authentication_error");
   assert.equal(posts, 0);
+});
+
+test("an email account ID verifies the owner before a new conversation or model lookup", async () => {
+  for (const operation of ["chat", "models"] as const) {
+    let posts = 0;
+    const client = new GeminiWebClient(cookie, { baseUrl: "http://127.0.0.1", userAgent, accountId: email,
+      fetch: async (_input, init) => {
+        if (init?.method === "POST") posts++;
+        return new Response(html("someone-else@example.test"));
+      } });
+    await assert.rejects(operation === "chat" ? client.chat({ message: "hello", thinking: false }) : client.getModels(),
+      (e: any) => e.code === "authentication_error" && !e.sessionUncertain);
+    assert.equal(posts, 0);
+  }
 });
 
 test("conversation remapping or stale reply/candidate IDs fail closed after one write", async () => {

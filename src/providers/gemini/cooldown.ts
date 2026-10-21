@@ -239,15 +239,17 @@ export interface GeminiMediaGenerationRequest extends MediaGenerationRequest {
 /** Multi-account adapter. Only a typed, definitive quota rejection may advance the ordered media route. */
 export class GeminiAccountProvider implements WebAIProvider {
   readonly id = "gemini";
-  readonly displayName = "Gemini Web (experimental HTTP)";
+  readonly displayName = "Gemini Web (experimental)";
   readonly capabilities;
   private readonly providers = new Map<string, WebAIProvider>();
+  private readonly credentials = new Map<string, GeminiAccountConfig>();
 
   constructor(
     private readonly accounts: readonly GeminiAccountConfig[],
     private readonly createProvider: (account: GeminiAccountConfig) => WebAIProvider,
     private readonly cooldowns: GeminiCooldownStore,
     private readonly mediaWait: { timeoutMs: number; pollMs: number } = { timeoutMs: 600_000, pollMs: 10_000 },
+    private readonly reloadAccount?: (id: string) => Promise<GeminiAccountConfig>,
   ) {
     if (!accounts.length) throw new ProviderError("Gemini account configuration is empty", "configuration_error");
     if (!Number.isSafeInteger(mediaWait.timeoutMs) || mediaWait.timeoutMs <= 0 || mediaWait.timeoutMs > 600_000 ||
@@ -261,12 +263,12 @@ export class GeminiAccountProvider implements WebAIProvider {
 
   async chat(request: ChatRequest, previous?: RemoteSession): Promise<ProviderResult> {
     const account = this.accountFor(previous);
-    const result = await this.getProvider(account).chat(request, previous);
+    const result = await (await this.currentProvider(account)).chat(request, previous);
     return this.bindSession(result, account);
   }
 
   async getModels(previous?: RemoteSession, signal?: AbortSignal): Promise<GeminiModelCatalog> {
-    const provider = this.getProvider(this.accountFor(previous)) as WebAIProvider & {
+    const provider = await this.currentProvider(this.accountFor(previous)) as WebAIProvider & {
       getModels?: (previous?: RemoteSession, signal?: AbortSignal) => Promise<GeminiModelCatalog>;
     };
     if (!provider.getModels) throw new ProviderError("Gemini model discovery is unavailable", "unsupported_capability");
@@ -284,7 +286,7 @@ export class GeminiAccountProvider implements WebAIProvider {
         if (pinned) throw new GeminiQuotaError(request.kind, cooldown.blockedUntilMs ?? undefined);
         continue;
       }
-      const provider = this.getProvider(account);
+      const provider = await this.currentProvider(account);
       if (!provider.generateMedia) throw new ProviderError("Gemini media generation is unavailable", "unsupported_capability");
       try {
         const result = await provider.generateMedia(request, previous);
@@ -331,7 +333,7 @@ export class GeminiAccountProvider implements WebAIProvider {
 
   async getMedia(previous: RemoteSession, signal?: AbortSignal): Promise<ProviderResult> {
     const account = this.accountFor(previous);
-    const provider = this.getProvider(account);
+    const provider = await this.currentProvider(account);
     if (!provider.getMedia) throw new ProviderError("Gemini media status is unavailable", "unsupported_capability");
     try { return this.bindSession(await provider.getMedia(previous, signal), account); }
     catch (error) {
@@ -342,7 +344,7 @@ export class GeminiAccountProvider implements WebAIProvider {
 
   async recoverMedia(conversationId: string, kind: GeminiMediaKind, accountId?: string, signal?: AbortSignal): Promise<ProviderResult> {
     const account = this.accountFor(accountId ? { accountId } : undefined);
-    const provider = this.getProvider(account) as WebAIProvider & {
+    const provider = await this.currentProvider(account) as WebAIProvider & {
       recoverMedia?: (conversationId: string, kind: GeminiMediaKind, accountId?: string, signal?: AbortSignal) => Promise<ProviderResult>;
     };
     if (!provider.recoverMedia) throw new ProviderError("Media recovery unavailable", "unsupported_capability");
@@ -355,7 +357,7 @@ export class GeminiAccountProvider implements WebAIProvider {
 
   async fetchMediaForSession(previous: RemoteSession, url: string, init?: RequestInit): Promise<Response> {
     const account = this.accountFor(previous);
-    const provider = this.getProvider(account) as WebAIProvider & {
+    const provider = await this.currentProvider(account) as WebAIProvider & {
       fetchMedia?: (url: string, init?: RequestInit) => Promise<Response>;
     };
     if (!provider.fetchMedia) throw new ProviderError("Gemini media download is unavailable", "unsupported_capability");
@@ -383,7 +385,23 @@ export class GeminiAccountProvider implements WebAIProvider {
       provider = this.createProvider(account);
       if (provider.id !== "gemini") throw new ProviderError("Gemini account factory returned an incompatible provider", "configuration_error");
       this.providers.set(account.id, provider);
+      this.credentials.set(account.id, account);
     }
+    return provider;
+  }
+
+  /** Reload only the selected owner's credentials before an operation, never retry an operation. */
+  private async currentProvider(account: GeminiAccountConfig): Promise<WebAIProvider> {
+    if (!this.reloadAccount) return this.getProvider(account);
+    const current = await this.reloadAccount(account.id);
+    if (current.id !== account.id) throw new ProviderError("Gemini credential refresh changed the account binding", "configuration_error");
+    const cached = this.credentials.get(account.id);
+    if (cached?.cookie === current.cookie && cached.userAgent === current.userAgent && cached.browserChatSpaceId === current.browserChatSpaceId) return this.getProvider(account);
+    const provider = this.createProvider(current);
+    if (provider.id !== "gemini") throw new ProviderError("Gemini account factory returned an incompatible provider", "configuration_error");
+    await provider.initialize();
+    this.providers.set(account.id, provider);
+    this.credentials.set(account.id, current);
     return provider;
   }
 

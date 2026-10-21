@@ -20,7 +20,7 @@ function fixture(completion: () => Response = () => reply(), timeout = 500) {
     fetch: async (input, init) => {
       const path = new URL(String(input)).pathname;
       calls.push({ path, init });
-      if (path.endsWith("/chat_session/create")) return json({ id: "remote-session" });
+      if (path.endsWith("/chat_session/create")) return json({ chat_session: { id: "remote-session" }, ttl_seconds: 3600 });
       if (path.endsWith("/chat/create_pow_challenge")) {
         const target_path = JSON.parse(String(init?.body)).target_path;
         return json({ challenge: { ...challenge, target_path } });
@@ -92,6 +92,23 @@ test("business errors and missing data are rejected before completion", async ()
   for (const response of [json({ id: "x" }, 100), json({}), new Response("bad JSON")]) {
     const client = new DeepSeekWebClient("fixture-token", { fetch: async () => response, solve: async () => 0 });
     await assert.rejects(client.chat({ message: "x", thinking: false }));
+  }
+});
+
+test("session creation accepts the legacy ID and rejects malformed nested sessions without completion", async () => {
+  for (const data of [{ id: "legacy" }, { chat_session: {} }, { chat_session: null },
+    { chat_session: { id: 42 } }, { chat_session: { id: " " } }, { id: "fallback", chat_session: {} }]) {
+    let completions = 0;
+    const client = new DeepSeekWebClient("fixture-token", { solve: async () => 0, fetch: async (input, init) => {
+      if (String(input).endsWith("/chat_session/create")) return json(data);
+      if (String(input).endsWith("/chat/create_pow_challenge")) return json({ challenge });
+      completions++;
+      assert.equal(JSON.parse(String(init?.body)).chat_session_id, "legacy");
+      return reply();
+    } });
+    if (data.id === "legacy") assert.equal((await client.chat({ message: "first", thinking: false })).sessionId, "legacy");
+    else await assert.rejects(client.chat({ message: "first", thinking: false }), (e: any) => e.code === "invalid_session" && !e.sessionUncertain);
+    assert.equal(completions, data.id === "legacy" ? 1 : 0);
   }
 });
 
