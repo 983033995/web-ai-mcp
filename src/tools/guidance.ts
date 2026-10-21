@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { JobManager } from "../core/jobs.js";
 
 export const USAGE = `Web AI MCP 使用规则：
-1. 每轮聊天必须包含非空 message。thinking/mode 不是独立设置工具；布尔值使用 true/false，不使用字符串。
+1. 每轮聊天必须包含非空 message。thinking/mode 不是独立设置工具；布尔值使用 true/false，不使用字符串。省略选择时使用 MCP 环境中的 *_DEFAULT_* 配置或内置值；显式调用参数优先。Gemini 已保存的会话选择优先于启动默认值，默认模型仍按账号校验。reasoner 工具固定开启思考。修改环境默认值后需重连 MCP。
 2. 首次可传 conversation_name；续聊使用实际返回的 session_key，不能同时传名称和 ID。conversation_id 是 session_key 的同值别名，不能自行构造。关闭后的 key 永久作废。
 3. 网页专家/长问题优先使用 background=true，并提供全新的 UUID request_id。立即保存返回的 job_id，按 poll_after_seconds 调用 webai_job_status；查询不重发消息。相同 request_id 只用于确认同一请求，不能更改正文。不要因等待而切普通聊天、换模型、换会话或重复提交。
 4. 后台任务仅在当前 MCP 进程中存在；重连/重启可能丢失任务及结果。unknown/expired job 时停止，检查对应 sessions_list 和官网，不以新 request_id 重放。后台结果保留30分钟，及时读取。一个进程只运行一个后台任务。

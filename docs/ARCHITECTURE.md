@@ -47,6 +47,14 @@ Use MCP as the **external consultation interface**, not an OpenAI-compatible mod
 - SessionStore: stable local UUID/name -> provider ID + opaque remote lineage + opt-in TTL + project default + atomic disk commit and process lease. No credentials or dialogue are persisted.
 - MCP tools: provider-specific command names; other sites add their own tool modules.
 
+## Configured tool defaults
+
+The tool layer reads optional startup selections from the MCP environment after `--env-file` loading. DeepSeek supports a default thinking boolean; Doubao supports quick/expert plus image/video model defaults; Gemini supports a general model, per-media model overrides and Low/Medium/High. Values are validated without echoing arbitrary input. Existing provider validators still check account-specific Gemini model access and model-specific media constraints before upstream dispatch. No website preference is changed.
+
+Explicit call parameters take precedence. Gemini's saved session model/level comes before configured defaults, including after process restart; capability model defaults come before the general model. Other tools preserve their existing per-message behavior, using configured defaults only for omitted options. The dedicated reasoner tools always enable thinking. Zod's Doubao model defaults are derived at registration so tool discovery and runtime agree. Gemini selectors remain optional in the schema, since schema-injected defaults would incorrectly override saved conversation choices.
+
+Tools remain registered by configured provider with their existing names. A multi-provider server has 28 tools; `tools/list` pagination is discovery transport, not a guarantee that a client will lazily load schemas into model context. Future capability profiles can reduce each client's visible surface while preserving typed tools and recovery controls; a generic untyped dispatcher is not required for startup defaults.
+
 ## Existing upstream implementation
 Pin https://github.com/booleamu/deepseek-mcp-server commit **f29e0de85fbe433c6d371b2649df9f0366f007f8**. Setup imports only Web reference source and dependencies (config/types/errors/WASM); it does not copy the official API client or original MCP router. Runtime imports the WASM only and uses project-owned TypeScript transport/parser. See THIRD_PARTY_NOTICES.md. SSE is aggregated into a final response and web search remains disabled.
 

@@ -8,6 +8,7 @@ import type { SessionStore } from "../core/session-store.js";
 import type { JobManager } from "../core/jobs.js";
 import { CHAT_DESCRIPTION, chatFields, dispatchChat, failureDetails } from "./guidance.js";
 import { DOUBAO_IMAGE_MODELS, DOUBAO_VIDEO_MODELS, DOUBAO_IMAGE_RATIOS, DOUBAO_VIDEO_RATIOS, DOUBAO_IMAGE_STYLES } from "../providers/doubao/media.js";
+import { doubaoDefaults } from "./defaults.js";
 
 const textResult = (text: string, error = false) => ({
   content: [{ type: "text" as const, text }],
@@ -92,11 +93,11 @@ function formatAnswer(result: ProviderResult, key?: string, showReasoning = fals
   return textResult(chunks.join("\n\n---\n\n"));
 }
 
-function expertMode(mode?: "quick" | "expert", thinking?: boolean): boolean {
+function expertMode(mode: "quick" | "expert" | undefined, thinking: boolean | undefined, fallback: "quick" | "expert"): boolean {
   if (mode && thinking !== undefined && (mode === "expert") !== thinking) {
     throw new ProviderError("mode and thinking must select the same mode", "invalid_request");
   }
-  return mode ? mode === "expert" : thinking ?? false;
+  return mode ? mode === "expert" : thinking ?? fallback === "expert";
 }
 
 export function registerDoubaoTools(
@@ -105,6 +106,7 @@ export function registerDoubaoTools(
   sessions: SessionStore,
   jobs?: JobManager
 ): void {
+  const defaults = doubaoDefaults();
   const sendChat = async (
     message: string,
     options: {
@@ -177,7 +179,7 @@ export function registerDoubaoTools(
   server.registerTool(
     "doubao_chat",
     {
-      description: "Chat through Doubao WEBSITE. mode/thinking apply to this message, not global settings." + CHAT_DESCRIPTION,
+      description: "Chat through Doubao WEBSITE. Explicit mode/thinking apply to this message; omission uses DOUBAO_DEFAULT_MODE (built-in quick)." + CHAT_DESCRIPTION,
       inputSchema: z.object({
         ...chatFields,
         mode: z.enum(["quick", "expert"]).optional(),
@@ -201,7 +203,7 @@ export function registerDoubaoTools(
         show_reasoning,
       } = args;
       try {
-        const selectedThinking = expertMode(mode, thinking);
+        const selectedThinking = expertMode(mode, thinking, defaults.mode);
         return await dispatchChat(args, extra, jobs, "doubao_chat", signal => sendChat(message, {
         key: session_key,
         conversationId: conversation_id,
@@ -229,7 +231,7 @@ export function registerDoubaoTools(
       thinking: z.boolean().optional(), show_reasoning: z.boolean().optional(), make_default: z.boolean().optional() }).strict(),
   }, async ({ file_paths, instruction, mode, thinking, show_reasoning, make_default }, extra) => {
     try {
-      const expert = expertMode(mode, thinking);
+      const expert = expertMode(mode, thinking, defaults.mode);
       if (!provider.analyzeFiles) throw new ProviderError("File analysis unavailable", "unsupported_capability");
       let files: FileInput[];
       try { files = await readAllowedFiles(file_paths, extra.signal); }
@@ -252,16 +254,16 @@ export function registerDoubaoTools(
       } catch (error) { return textResult("[doubao image error] " + redact(error), true); }
     };
     server.registerTool("doubao_generate_image", {
-      description: "Generate an image through your Doubao website account. Select model (default Seedream 5.0 Flash), ratio and optional website style. reference_image_paths uploads up to five PNG/JPEG/WebP files from WEB_AI_ALLOWED_ROOTS (10 MiB each, 20 MiB total). Creates a separate conversation by default. Returns actual creation URLs or a clarification. Website controls access/quota; no fallback or automatic resubmission.",
-      inputSchema: z.object({ prompt: z.string().trim().min(1).max(10000), model: z.enum(DOUBAO_IMAGE_MODELS).default(DOUBAO_IMAGE_MODELS[0]),
+      description: "Generate an image through your Doubao website account. Omitted model uses DOUBAO_DEFAULT_IMAGE_MODEL (built-in Seedream 5.0 Flash). Select ratio and optional website style. reference_image_paths uploads up to five PNG/JPEG/WebP files from WEB_AI_ALLOWED_ROOTS (10 MiB each, 20 MiB total). Creates a separate conversation by default. Returns actual creation URLs or a clarification. Website controls access/quota; no fallback or automatic resubmission.",
+      inputSchema: z.object({ prompt: z.string().trim().min(1).max(10000), model: z.enum(DOUBAO_IMAGE_MODELS).default(defaults.imageModel),
         ratio: z.enum(DOUBAO_IMAGE_RATIOS).default("auto"), style: z.enum(Object.keys(DOUBAO_IMAGE_STYLES) as [string, ...string[]]).optional(),
         reference_image_paths: z.array(z.string().min(1)).min(1).max(5).optional(), ...selectors }).strict(),
     }, ({ prompt, model, ratio, style, reference_image_paths, session_key, conversation_name }, extra) =>
       generate({ kind: "image", prompt, model, ratio, style, signal: extra.signal }, session_key, conversation_name, reference_image_paths));
     server.registerTool("doubao_generate_video", {
-      description: "Request a Doubao website video. Default model Seedance 2.0 Fast. Seedance 2.5 allows 4–30 seconds; other supported models allow 4–15 seconds. Optional reference_image_paths uploads up to five PNG/JPEG/WebP files from WEB_AI_ALLOWED_ROOTS through the same verified image uploader (10 MiB each, 20 MiB total). Creates a separate conversation by default. The website may ask for confirmation; use doubao_chat with the returned key. Query doubao_media_status for asynchronous results. Model access/quota are controlled by the website; no fallback. Text acknowledgement is not completion.",
+      description: "Request a Doubao website video. Omitted model uses DOUBAO_DEFAULT_VIDEO_MODEL (built-in Seedance 2.0 Fast). Seedance 2.5 allows 4–30 seconds; other supported models allow 4–15 seconds. Optional reference_image_paths uploads up to five PNG/JPEG/WebP files from WEB_AI_ALLOWED_ROOTS through the same verified image uploader (10 MiB each, 20 MiB total). Creates a separate conversation by default. The website may ask for confirmation; use doubao_chat with the returned key. Query doubao_media_status for asynchronous results. Model access/quota are controlled by the website; no fallback. Text acknowledgement is not completion.",
       inputSchema: z.object({ prompt: z.string().trim().min(1).max(10000),
-        model: z.enum(DOUBAO_VIDEO_MODELS).default(DOUBAO_VIDEO_MODELS[0]),
+        model: z.enum(DOUBAO_VIDEO_MODELS).default(defaults.videoModel),
         ratio: z.enum(DOUBAO_VIDEO_RATIOS).default("auto"),
         duration_seconds: z.number().int().min(4).max(30).default(4),
         reference_image_paths: z.array(z.string().min(1)).min(1).max(5).optional(), ...selectors }).strict(),

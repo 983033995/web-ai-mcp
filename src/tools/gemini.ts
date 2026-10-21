@@ -9,6 +9,7 @@ import { GeminiQuotaError, type GeminiAccountStatus, type GeminiMediaGenerationR
 import { GEMINI_THINKING_LEVELS, type GeminiModelCatalog } from "../providers/gemini/selection.js";
 import { downloadMediaFile, validateMediaDirectory } from "../core/media-download.js";
 import { geminiMediaURL } from "../providers/gemini/media.js";
+import { geminiDefaults } from "./defaults.js";
 
 const textResult = (text: string, error = false) => ({
   content: [{ type: "text" as const, text }],
@@ -100,11 +101,12 @@ function safeModelCatalog(catalog: GeminiModelCatalog): unknown {
 export function registerGeminiTools(
   server: McpServer, provider: WebAIProvider, sessions: SessionStore, jobs?: JobManager
 ): void {
+  const defaults = geminiDefaults();
   const errorResult = (error: unknown) => textResult("[gemini error] " + redact(error) + "\n" + failureDetails(error) +
     (error instanceof GeminiQuotaError ? "\n" + JSON.stringify({ cooldown_until: error.resetAtMs ? new Date(error.resetAtMs).toISOString() : null }) : ""), true);
   const { show_reasoning: _showReasoning, ...fields } = chatFields;
   server.registerTool("gemini_chat", {
-    description: "Chat through your own Gemini WEBSITE (experimental HTTP). Optional model and thinking_level are validated against the selected account; file_paths uploads supported files from WEB_AI_ALLOWED_ROOTS. No web search. system_prompt is a plain text prefix, not a website system role." + CHAT_DESCRIPTION,
+    description: "Chat through your own Gemini WEBSITE (experimental HTTP). Selection priority: explicit model/thinking_level, saved session selection, GEMINI_DEFAULT_MODEL/GEMINI_DEFAULT_THINKING_LEVEL, website model route/Low. Selections are validated against the account; file_paths uploads files from WEB_AI_ALLOWED_ROOTS. No web search. system_prompt is a plain text prefix, not a website system role." + CHAT_DESCRIPTION,
     inputSchema: z.object({ ...fields,
       model: z.string().trim().min(1).max(160).optional(),
       thinking_level: z.enum(["low", "medium", "high"]).optional(),
@@ -133,8 +135,8 @@ export function registerGeminiTools(
         try {
           const request = {
             message: args.message, systemPrompt: args.system_prompt, thinking: false, signal,
-            ...(args.model ? { model: args.model } : {}),
-            ...(args.thinking_level ? { thinkingLevel: args.thinking_level } : {}),
+            model: args.model ?? (typeof previous?.remote.model === "string" ? undefined : defaults.model),
+            thinkingLevel: args.thinking_level ?? (typeof previous?.remote.thinkingLevel === "string" ? undefined : defaults.thinkingLevel),
             ...(files ? { files } : {}),
           };
           const result = await provider.chat(request, previous?.remote);
@@ -255,8 +257,9 @@ export function registerGeminiTools(
               const request: GeminiMediaGenerationRequest = {
                 kind, prompt: args.prompt, signal,
                 onPendingSession: remote => { sessions.update(record.key, remote, "pending"); },
-                ...(args.model ? { model: args.model } : {}),
-                ...(args.thinking_level ? { thinkingLevel: args.thinking_level } : {}),
+                model: args.model ?? (typeof previous?.remote.model === "string" ? undefined :
+                  (kind === "image" ? defaults.imageModel : defaults.videoModel) ?? defaults.model),
+                thinkingLevel: args.thinking_level ?? (typeof previous?.remote.thinkingLevel === "string" ? undefined : defaults.thinkingLevel),
                 ...(args.ratio ? { ratio: args.ratio } : {}),
                 ...(imagePaths.length ? { referenceImages: references.slice(0, imagePaths.length) } : {}),
                 ...(videoPaths.length ? { referenceVideos: references.slice(imagePaths.length) } : {}),
