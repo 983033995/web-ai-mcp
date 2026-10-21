@@ -11,6 +11,7 @@ import { uploadGeminiFiles } from "./upload.js";
 export interface GeminiWebClientOptions {
   baseUrl?: string;
   userAgent?: string;
+  accountId?: string;
   timeout?: number;
   fetch?: typeof fetch;
 }
@@ -263,13 +264,15 @@ export class GeminiWebClient {
   private readonly timeout: number;
   private readonly request: typeof fetch;
   private readonly userAgent: string;
-  private readonly cookie: string;
+  private cookie: string;
+  private readonly expectedAccountHash?: string;
   private verificationBlocked = false;
   private requestId = 100000;
 
   constructor(cookie: string, options: GeminiWebClientOptions = {}) {
     if (!ownSessionCookie(cookie)) throw configurationError();
     this.cookie = cookie.trim();
+    if (options.accountId?.includes("@")) this.expectedAccountHash = createHash("sha256").update(options.accountId.trim().toLowerCase()).digest("hex");
     this.userAgent = options.userAgent ?? process.env.GEMINI_USER_AGENT ?? "";
     if (!this.userAgent.trim() || /[\r\n]/.test(this.userAgent) || this.userAgent.length > 2048) throw configurationError();
     const rawBaseUrl = options.baseUrl ?? process.env.GEMINI_WEB_BASE_URL ?? "https://gemini.google.com";
@@ -281,7 +284,41 @@ export class GeminiWebClient {
     }
     this.timeout = options.timeout ?? Number(process.env.GEMINI_TIMEOUT || "60000");
     if (!Number.isSafeInteger(this.timeout) || this.timeout <= 0 || this.timeout > 600000) throw configurationError();
-    this.request = options.fetch ?? fetch;
+    const request = options.fetch ?? fetch;
+    this.request = async (input, init) => {
+      const response = await request(input, init);
+      if (new URL(input instanceof Request ? input.url : String(input)).origin === this.baseUrl.origin) {
+        this.acceptCookies(response.headers);
+      }
+      return response;
+    };
+  }
+
+  /** Normal same-site response cookies stay in memory; no login refresh or request replay. */
+  private acceptCookies(headers: Headers): void {
+    const cookies = new Map(this.cookie.split(";").map(part => {
+      const index = part.indexOf("=");
+      return [part.slice(0, index).trim(), part.slice(index + 1).trim()] as const;
+    }));
+    for (const raw of headers.getSetCookie()) {
+      const [pair, ...attributes] = raw.split(";");
+      const index = pair.indexOf("=");
+      const name = pair.slice(0, index).trim(), value = pair.slice(index + 1).trim();
+      if (index < 1 || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\s\u0000-\u001f\u007f;]/.test(value)) continue;
+      const attrs = new Map(attributes.map(part => {
+        const index = part.indexOf("=");
+        return [part.slice(0, index < 0 ? undefined : index).trim().toLowerCase(), index < 0 ? "" : part.slice(index + 1).trim()] as const;
+      }));
+      const domain = attrs.get("domain")?.toLowerCase().replace(/^\./, "");
+      if (domain && domain !== this.baseUrl.hostname && !(this.baseUrl.hostname === "gemini.google.com" && domain === "google.com")) continue;
+      if (attrs.has("path") && attrs.get("path") !== "/") continue;
+      if ((attrs.has("secure") || name.startsWith("__Secure-") || name.startsWith("__Host-")) && this.baseUrl.protocol !== "https:") continue;
+      if (name.startsWith("__Host-") && (domain || attrs.get("path") !== "/")) continue;
+      const age = attrs.get("max-age"), expires = attrs.get("expires");
+      const expired = age !== undefined ? /^-?\d+$/.test(age) && Number(age) <= 0 : expires !== undefined && Date.parse(expires) <= Date.now();
+      if (expired) cookies.delete(name); else cookies.set(name, value);
+    }
+    this.cookie = [...cookies].map(([name, value]) => `${name}=${value}`).join("; ");
   }
 
   /** Configuration is checked by the constructor; discovery never contacts Gemini. */
@@ -696,6 +733,7 @@ export class GeminiWebClient {
       throw new GeminiWebError("invalid_response", "Gemini Web initialization did not include usable request context");
     }
     const accountHash = createHash("sha256").update(email.trim().toLowerCase()).digest("hex");
+    if (this.expectedAccountHash && this.expectedAccountHash !== accountHash) throw authenticationError();
     return { at, build, fsid, accountHash };
   }
 

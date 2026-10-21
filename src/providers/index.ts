@@ -6,6 +6,7 @@ import { GeminiWebClient } from "./gemini/web-client.js";
 import { loadGeminiAccounts } from "./gemini/accounts.js";
 import { GeminiAccountProvider, GeminiCooldownStore } from "./gemini/cooldown.js";
 import { dirname, resolve } from "node:path";
+import { ProviderError } from "../core/provider.js";
 
 /** Composition root. Add future providers explicitly; do not register placeholders. */
 export async function registerProviders(registry: ProviderRegistry): Promise<void> {
@@ -23,8 +24,16 @@ export async function registerProviders(registry: ProviderRegistry): Promise<voi
   if (geminiAccounts.length) {
     const projectRoot = resolve(process.env.WEB_AI_PROJECT_ROOT || process.cwd());
     const store = resolve(process.env.WEB_AI_SESSION_STORE_PATH || resolve(projectRoot, ".web-ai-mcp/sessions.json"));
+    const accountsFile = process.env.GEMINI_ACCOUNTS_FILE;
     registry.register(new GeminiAccountProvider(geminiAccounts,
-      account => new GeminiWebProvider(account.cookie, new GeminiWebClient(account.cookie, { userAgent: account.userAgent })),
-      new GeminiCooldownStore(process.env.GEMINI_COOLDOWN_STORE_PATH || resolve(dirname(store), "gemini-cooldowns.json"))));
+      account => new GeminiWebProvider(account.cookie, new GeminiWebClient(account.cookie, { userAgent: account.userAgent, accountId: account.id })),
+      new GeminiCooldownStore(process.env.GEMINI_COOLDOWN_STORE_PATH || resolve(dirname(store), "gemini-cooldowns.json")), undefined,
+      accountsFile ? async id => {
+        const current = await loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: accountsFile });
+        if (current.length !== geminiAccounts.length || current.some((account, index) => account.id !== geminiAccounts[index].id)) {
+          throw new ProviderError("Gemini account IDs or order changed; reconnect MCP to apply the new account list", "configuration_error");
+        }
+        return current.find(account => account.id === id)!;
+      } : undefined));
   }
 }

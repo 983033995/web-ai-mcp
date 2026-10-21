@@ -2,6 +2,8 @@
 
 日期：2026-10-20。Gemini 为当前源码中的实验性 provider，尚未包含在已发布的 `web-ai-mcp@0.4.0` 中。仅连接本人获准使用的 `gemini.google.com` 账号，不是官方 Gemini API 或 OpenAI 兼容代理。
 
+2026-10-21 复核：更新本机凭据后，实际 stdio MCP 模型读取通过；Argon/High 文字请求仍在约一分钟返回网站错误记录，没有完整答案或候选。相同本人账号的官网 Argon/High 对话能返回答案，不能据此宣称 HTTP MCP 聊天已恢复。本次同账号凭据重读、身份核对及响应 Cookie 更新修复不保证解决该流错误；没有自动换账号、重放失败请求或把网页答案冒充 MCP 结果。旧的成功记录仅描述当时兼容性。
+
 ## 实现范围
 
 - `gemini_chat`：网站默认模型、普通文字聊天、命名/默认会话、`session_key` / `conversation_id`、后台任务和正常重启续聊。`system_prompt` 仅作为文字前缀。

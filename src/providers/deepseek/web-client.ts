@@ -106,8 +106,11 @@ export class DeepSeekWebClient {
 
   private async session(context: RequestContext): Promise<string> {
     const data = await this.json("/chat_session/create", context, { agent: "chat" });
-    if (typeof data.id !== "string" || !data.id) throw new DeepSeekWebError("invalid_session", "Missing DeepSeek Web session ID");
-    return data.id;
+    // Current website nests the session; retain compatibility with the earlier envelope.
+    const session = data.chat_session === undefined ? data : data.chat_session;
+    const parsed = z.object({ id: z.string().trim().min(1) }).safeParse(session);
+    if (!parsed.success) throw new DeepSeekWebError("invalid_session", "Missing DeepSeek Web session ID");
+    return parsed.data.id;
   }
 
   private async proof(path: string, context: RequestContext): Promise<string> {

@@ -7,6 +7,8 @@ import { ProviderError, type MediaGenerationRequest, type ProviderResult, type R
 import { loadGeminiAccounts, validGeminiAccountId, type GeminiAccountConfig } from "../src/providers/gemini/accounts.js";
 import { GeminiAccountProvider, GeminiCooldownStore, GeminiQuotaError, type GeminiMediaGenerationRequest } from "../src/providers/gemini/cooldown.js";
 import { GeminiMediaQuotaError } from "../src/providers/gemini/errors.js";
+import { registerProviders } from "../src/providers/index.js";
+import { ProviderRegistry } from "../src/core/registry.js";
 
 const account = (id: string, cooldownMinutes?: GeminiAccountConfig["cooldownMinutes"]): GeminiAccountConfig => ({
   id, cookie: `__Secure-1PSID=${id}-secret`, userAgent: "Fixture Browser/1.0", ...(cooldownMinutes ? { cooldownMinutes } : {}),
@@ -49,6 +51,85 @@ function accountProvider(
 }
 
 const request = (kind: "image" | "video"): MediaGenerationRequest => ({ kind, prompt: "ordinary fixture prompt" });
+
+test("credential refresh is applied to the same account between operations without replay or cooldown loss", async t => {
+  const root = await tempDir(t), calls: string[] = [], created: string[] = [];
+  const store = new GeminiCooldownStore(join(root, "cooldowns.json"), () => 100000);
+  await store.recordQuota("first", "video", 200000);
+  let configs = [account("first"), account("second")];
+  const provider = new GeminiAccountProvider(configs, config => {
+    created.push(config.cookie);
+    return fakeProvider(config.id, calls, undefined,
+      config.cookie === account("first").cookie ? new ProviderError("expired", "authentication_error") : undefined);
+  }, store, undefined, async id => configs.find(a => a.id === id)!);
+  await provider.initialize();
+  await assert.rejects(provider.chat({ message: "first", thinking: false }), (e: any) => e.code === "authentication_error");
+  assert.deepEqual(calls, ["chat:first:new"]);
+  configs = [{ ...configs[0], cookie: "__Secure-1PSID=refreshed-secret" }, configs[1]];
+  const previous = { accountId: "first", conversationId: "existing", accountHash: "first-hash" };
+  const result = await provider.chat({ message: "continue", thinking: false }, previous);
+  assert.deepEqual(result.remoteSession, previous);
+  await provider.getMedia(previous);
+  assert.deepEqual(calls, ["chat:first:new", "chat:first:first", "status:first:first"]);
+  assert.equal(created.length, 3); // Two startup accounts, then one replaced credential.
+  assert.equal((await store.status("first", "video")).blockedUntilMs, 200000);
+});
+
+test("invalid credential refresh fails before upstream access and never uses stale credentials or another account", async t => {
+  const root = await tempDir(t), calls: string[] = [];
+  let fail = false;
+  const provider = new GeminiAccountProvider([account("first"), account("second")], config => fakeProvider(config.id, calls),
+    new GeminiCooldownStore(join(root, "cooldowns.json")), undefined, async () => {
+      if (fail) throw new ProviderError("invalid private file", "configuration_error");
+      return account("second");
+    });
+  for (fail of [false, true]) {
+    await assert.rejects(provider.chat({ message: "hello", thinking: false }), (e: any) => e.code === "configuration_error");
+    await assert.rejects(provider.getMedia({ accountId: "first" }), (e: any) => e.code === "configuration_error");
+    await assert.rejects(provider.generateMedia(request("image")), (e: any) => e.code === "configuration_error");
+  }
+  assert.deepEqual(calls, []);
+});
+
+test("registered file-backed provider reloads private credentials and rejects unsafe files or reordered owners", async t => {
+  const root = await tempDir(t), file = join(root, "accounts.json"), cookies: string[] = [];
+  let configs = [account("first"), account("second")];
+  await writeFile(file, JSON.stringify({ accounts: configs }), { mode: 0o600 });
+  const settings = { GEMINI_ACCOUNTS_FILE: file, GEMINI_COOKIE: "", GEMINI_USER_AGENT: "", DEEPSEEK_USER_TOKEN: "", DOUBAO_COOKIE: "",
+    GEMINI_WEB_BASE_URL: "http://127.0.0.1", WEB_AI_PROJECT_ROOT: root };
+  const before = Object.fromEntries(Object.keys(settings).map(key => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  });
+  Object.assign(process.env, settings);
+  globalThis.fetch = async (_input, init) => {
+    assert.equal(init?.method, "GET");
+    cookies.push(new Headers(init?.headers).get("Cookie")!);
+    return new Response(null, { status: 401 });
+  };
+  const registry = new ProviderRegistry();
+  await registerProviders(registry);
+  const provider = registry.get("gemini") as GeminiAccountProvider;
+  await assert.rejects(provider.getModels(), (e: any) => e.code === "authentication_error");
+  configs = [{ ...configs[0], cookie: "__Secure-1PSID=new-credential" }, configs[1]];
+  await writeFile(file, JSON.stringify({ accounts: configs }), { mode: 0o600 });
+  await assert.rejects(provider.getModels(), (e: any) => e.code === "authentication_error");
+  assert.deepEqual(cookies, [account("first").cookie, configs[0].cookie]);
+  await writeFile(file, JSON.stringify({ accounts: [...configs].reverse() }), { mode: 0o600 });
+  await assert.rejects(provider.getModels(), (e: any) => e.code === "configuration_error");
+  await writeFile(file, "not JSON", { mode: 0o600 });
+  await assert.rejects(provider.getModels(), (e: any) => e.code === "configuration_error");
+  if (process.platform !== "win32") {
+    await writeFile(file, JSON.stringify({ accounts: configs }), { mode: 0o600 });
+    await chmod(file, 0o644);
+    await assert.rejects(provider.getModels(), (e: any) => e.code === "configuration_error");
+  }
+  assert.equal(cookies.length, 2);
+});
 
 test("read-only quota lookup never generates, while the original new-generation operation can route onward", async t => {
   const root = await tempDir(t), calls: string[] = [];

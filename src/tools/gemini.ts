@@ -18,8 +18,8 @@ const textResult = (text: string, error = false) => ({
 });
 
 const providerMessages: Readonly<Record<string, string>> = {
-  configuration_error: "Check GEMINI_COOKIE, GEMINI_USER_AGENT and GEMINI_TIMEOUT in the local MCP configuration.",
-  authentication_error: "Gemini login is missing, expired or belongs to another account. Update your own website Cookie and restart MCP; never share cookies or reuse another account's session store.",
+  configuration_error: "Check the private GEMINI_ACCOUNTS_FILE or legacy GEMINI_COOKIE/GEMINI_USER_AGENT configuration, and GEMINI_TIMEOUT. Account ID/order changes require reconnecting MCP.",
+  authentication_error: "Gemini login is missing, expired or belongs to another account. Update the same owner's credentials in the private account file; legacy environment credentials require reconnecting MCP. Never share cookies or reuse another account's session store.",
   access_denied: "Gemini website denied access; check your account through the official website.",
   captcha_required: "Gemini requires website verification. This client has stopped website writes; resolve verification manually and restart MCP.",
   rate_limit_error: "Gemini website quota or rate limit reached; stop and wait. Do not switch accounts or modes automatically.",
