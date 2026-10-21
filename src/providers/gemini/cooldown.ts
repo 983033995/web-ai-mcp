@@ -4,7 +4,7 @@ import { lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { dirname, isAbsolute } from "node:path";
 import { ProviderError, type ChatRequest, type MediaGenerationRequest, type ProviderResult, type RemoteSession, type WebAIProvider } from "../../core/provider.js";
-import type { GeminiAccountConfig } from "./accounts.js";
+import { validGeminiAccountId, type GeminiAccountConfig } from "./accounts.js";
 import type { GeminiModelCatalog } from "./selection.js";
 import { GeminiMediaQuotaError } from "./errors.js";
 
@@ -53,7 +53,6 @@ export interface GeminiCooldownStatus {
 const MAX_COOLDOWN_FILE_BYTES = 1024 * 1024;
 const MAX_LOCK_WAIT_MS = 5000;
 const EMPTY_STATE: CooldownFile = { version: 1, records: [] };
-const validId = (value: unknown): value is string => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value);
 const validKind = (value: unknown): value is GeminiMediaKind => value === "image" || value === "video";
 
 function storeError(): GeminiCooldownStoreError { return new GeminiCooldownStoreError(); }
@@ -82,7 +81,7 @@ export class GeminiCooldownStore {
     resetAtMs?: number,
     fallbackMinutes?: number,
   ): Promise<GeminiCooldownStatus> {
-    if (!validId(accountId) || !validKind(kind)) throw storeError();
+    if (!validGeminiAccountId(accountId) || !validKind(kind)) throw storeError();
     return this.withWriteLock(async () => {
       const state = await this.readState();
       const recordedAtMs = this.now();
@@ -166,7 +165,7 @@ export class GeminiCooldownStore {
         ? record.blockedUntilMs === null
         : Number.isSafeInteger(record.blockedUntilMs) && record.blockedUntilMs! > record.recordedAtMs;
       if (Object.keys(item).some(field => !["accountId", "kind", "recordedAtMs", "blockedUntilMs", "source"].includes(field)) ||
-          !validId(record.accountId) || !validKind(record.kind) || !Number.isSafeInteger(record.recordedAtMs) || record.recordedAtMs < 0 ||
+          !validGeminiAccountId(record.accountId) || !validKind(record.kind) || !Number.isSafeInteger(record.recordedAtMs) || record.recordedAtMs < 0 ||
           !validReset ||
           !["website", "configured_backoff", "unknown"].includes(record.source) || seen.has(key)) return false;
       seen.add(key);

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { ProviderError, type MediaGenerationRequest, type ProviderResult, type RemoteSession, type WebAIProvider } from "../src/core/provider.js";
-import { loadGeminiAccounts, type GeminiAccountConfig } from "../src/providers/gemini/accounts.js";
+import { loadGeminiAccounts, validGeminiAccountId, type GeminiAccountConfig } from "../src/providers/gemini/accounts.js";
 import { GeminiAccountProvider, GeminiCooldownStore, GeminiQuotaError, type GeminiMediaGenerationRequest } from "../src/providers/gemini/cooldown.js";
 import { GeminiMediaQuotaError } from "../src/providers/gemini/errors.js";
 
@@ -151,6 +151,33 @@ test("loads ordered accounts from a private file and does not expose credentials
     assert.equal(error.message.includes(path), false);
     return true;
   });
+});
+
+test("email account IDs load in order, preserve pinned media and persist independent cooldowns", async t => {
+  const root = await tempDir(t), path = join(root, "accounts.json"), calls: string[] = [];
+  const ids = ["owner.first@example.test", "owner+second@example.test"];
+  for (const id of [...ids, "legacy-alias"]) assert.equal(validGeminiAccountId(id), true);
+  for (const id of ["a@example.test\nsecret", "a@example.test\n", "alias\r\n", "a@-example.test", "a@example..test", "a@@example.test", "../a@example.test", "a b@example.test", "a".repeat(65) + "@example.test"]) {
+    assert.equal(validGeminiAccountId(id), false);
+  }
+  await writeFile(path, JSON.stringify({ accounts: ids.map(id => account(id)) }), { mode: 0o600 });
+  const loaded = await loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: path });
+  assert.deepEqual(loaded.map(a => a.id), ids);
+  const cooldownPath = join(root, "cooldowns.json");
+  const cooldowns = new GeminiCooldownStore(cooldownPath, () => 100000);
+  await cooldowns.recordQuota(ids[0], "video", 200000);
+  const restored = new GeminiCooldownStore(cooldownPath, () => 100000);
+  assert.equal((await restored.status(ids[0], "video")).coolingDown, true);
+  assert.equal((await restored.status(ids[0], "image")).coolingDown, false);
+  const provider = accountProvider(loaded, restored, calls, {
+    [ids[1]]: () => ({ content: "accepted", remoteSession: { accountHash: "unchanged-second-owner-hash" } }),
+  });
+  assert.equal((await provider.generateMedia(request("video"))).remoteSession?.accountId, ids[1]);
+  assert.deepEqual(calls, ["video:" + ids[1] + ":new"]);
+  await provider.getMedia({ accountId: ids[0], mediaKind: "video", accountHash: "unchanged-owner-hash" });
+  assert.equal(calls.at(-1), "status:" + ids[0] + ":" + ids[0]);
+  await writeFile(path, JSON.stringify({ accounts: [account(ids[0]), account(ids[0].toUpperCase())] }), { mode: 0o600 });
+  await assert.rejects(loadGeminiAccounts({ GEMINI_ACCOUNTS_FILE: path }), (e: any) => e.code === "configuration_error" && !e.message.includes(ids[0]));
 });
 
 test("legacy single-account configuration adapts to default and empty config stays empty", async () => {

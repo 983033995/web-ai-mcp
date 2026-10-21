@@ -199,8 +199,10 @@ test("owner URL recovery uses one history lookup, validates scope and preserves 
   for (const url of ["https://evil.test/app/0123456789abcdef", "https://gemini.google.com/app/0123456789abcdef?token=secret", "https://gemini.google.com/app/../account"]) {
     assert.equal((await call("gemini_recover_media", { conversation_url: url, kind: "video" })).isError, true);
   }
+  assert.equal((await call("gemini_recover_media", { conversation_url: "https://gemini.google.com/app/0123456789abcdef", kind: "video",
+    account_id: "owner@example.test\nsecret" })).isError, true);
   assert.deepEqual(f.counts(), { writes: 0, reads: 0 });
-  const recovered = await call("gemini_recover_media", { conversation_url: "https://gemini.google.com/app/0123456789abcdef", kind: "video" });
+  const recovered = await call("gemini_recover_media", { conversation_url: "https://gemini.google.com/app/0123456789abcdef", kind: "video", account_id: "owner@example.test" });
   assert.equal(recovered.isError, undefined);
   const text = (recovered.content as any[]).map(c => c.text).join("\n"), key = text.match(/session_key: ([a-f0-9-]{36})/)[1];
   assert.equal(sessions.require(key, "gemini").remote.mediaReadOnly, true);
