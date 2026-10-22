@@ -169,6 +169,16 @@ test("missing reply lineage returns content without a resumable session", async 
   assert.match(result.warning!, /cannot be resumed/);
 });
 
+test("a complete HTTP website failure notice is an error rather than a successful answer, with no replay", async () => {
+  const notice = "Sorry, something went wrong. Please try your request again.";
+  const { client, calls } = fixture(() => stream(notice, { conversationId: "c_one", replyId: "r_one", candidateId: "rc_one" }));
+  await assert.rejects(client.chat({ message: "ordinary product question", thinking: false }),
+    (e: any) => e.code === "website_error" && e.sessionUncertain);
+  assert.equal(calls.filter(call => call.init?.method === "POST").length, 1);
+  const quoted = fixture(() => stream(`The website displayed: ${notice}`, { conversationId: "c_one", replyId: "r_one", candidateId: "rc_one" }));
+  assert.match((await quoted.client.chat({ message: "explain", thinking: false })).content, /^The website displayed/);
+});
+
 test("cookie and User-Agent are required, and initialization is offline", async () => {
   assert.throws(() => new GeminiWebClient("other=value", { userAgent }));
   assert.throws(() => new GeminiWebClient(cookie));

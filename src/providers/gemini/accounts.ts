@@ -7,8 +7,6 @@ export interface GeminiAccountConfig {
   id: string;
   cookie: string;
   userAgent: string;
-  /** Explicit agent-controlled ego-browser space; never an automatic HTTP fallback. */
-  browserChatSpaceId?: number;
   cooldownMinutes?: Partial<Record<"image" | "video", number>>;
 }
 
@@ -29,11 +27,13 @@ function configurationError(): ProviderError {
 function validateAccount(value: unknown): GeminiAccountConfig | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).some(key => !["id", "cookie", "userAgent", "cooldownMinutes", "browserChatSpaceId"].includes(key))) return undefined;
+  if (Object.hasOwn(record, "browserChatSpaceId")) {
+    throw new ProviderError("Gemini no longer uses browser task spaces; remove browserChatSpaceId from the private account file", "configuration_error");
+  }
+  if (Object.keys(record).some(key => !["id", "cookie", "userAgent", "cooldownMinutes"].includes(key))) return undefined;
   if (!validGeminiAccountId(record.id) || typeof record.cookie !== "string" || record.cookie.length > 64 * 1024 || !ownSessionCookie(record.cookie) ||
       typeof record.userAgent !== "string" || !record.userAgent.trim() || record.userAgent.length > 1024 || /[\r\n\u0000]/.test(record.userAgent)) return undefined;
 
-  if (record.browserChatSpaceId !== undefined && (!record.id.includes("@") || !Number.isSafeInteger(record.browserChatSpaceId) || Number(record.browserChatSpaceId) < 1)) return undefined;
   let cooldownMinutes: GeminiAccountConfig["cooldownMinutes"];
   if (record.cooldownMinutes !== undefined) {
     if (!record.cooldownMinutes || typeof record.cooldownMinutes !== "object" || Array.isArray(record.cooldownMinutes)) return undefined;
@@ -47,8 +47,7 @@ function validateAccount(value: unknown): GeminiAccountConfig | undefined {
       cooldownMinutes[kind] = value;
     }
   }
-  return { id: record.id, cookie: record.cookie, userAgent: record.userAgent, ...(cooldownMinutes ? { cooldownMinutes } : {}),
-    ...(record.browserChatSpaceId !== undefined ? { browserChatSpaceId: record.browserChatSpaceId as number } : {}) };
+  return { id: record.id, cookie: record.cookie, userAgent: record.userAgent, ...(cooldownMinutes ? { cooldownMinutes } : {}) };
 }
 
 async function readPrivateAccountsFile(filePath: string): Promise<unknown> {

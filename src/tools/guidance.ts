@@ -40,7 +40,7 @@ type CallExtra = { signal: AbortSignal; _meta?: { progressToken?: string | numbe
 export function failureDetails(error: unknown): string {
   const value = error instanceof Error ? error.message : "";
   const rawCode = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : undefined;
-  const knownCodes = ["invalid_session", "invalid_request", "authentication_error", "captcha_required", "rate_limit_error", "cancelled", "timeout_error", "browser_error",
+  const knownCodes = ["invalid_session", "invalid_request", "authentication_error", "captcha_required", "rate_limit_error", "cancelled", "timeout_error",
     "network_error", "invalid_response", "malformed_sse", "session_state_error", "stream_error", "website_error", "access_denied", "quota_exhausted", "cooldown_state_error", "media_generation_failed", "media_quota_exhausted"];
   const code = rawCode && knownCodes.includes(rawCode) ? rawCode :
     /Use conversation|must identify|Conflicting/.test(value) ? "invalid_arguments" :

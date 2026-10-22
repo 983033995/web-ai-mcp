@@ -15,6 +15,7 @@ try {
   const [pack] = JSON.parse(run(["pack", "--ignore-scripts", "--json", "--pack-destination", temporary]));
   const paths = pack.files.map((file) => file.path);
   for (const path of paths) {
+    assert.ok(!/^dist\/providers\/gemini\/browser-(chat|runtime)\./.test(path), path);
     assert.ok(!/(^|\/)(upstream|node_modules|tests|\.web-ai-mcp|\.github)(\/|$)/.test(path), path);
     assert.ok(!path.endsWith(".wasm") && !path.endsWith(".map") && !path.endsWith(".tgz"), path);
     assert.ok(!path.startsWith("src/") && !path.startsWith("scripts/"), path);
