@@ -396,7 +396,7 @@ export class GeminiAccountProvider implements WebAIProvider {
     const current = await this.reloadAccount(account.id);
     if (current.id !== account.id) throw new ProviderError("Gemini credential refresh changed the account binding", "configuration_error");
     const cached = this.credentials.get(account.id);
-    if (cached?.cookie === current.cookie && cached.userAgent === current.userAgent && cached.browserChatSpaceId === current.browserChatSpaceId) return this.getProvider(account);
+    if (cached?.cookie === current.cookie && cached.userAgent === current.userAgent) return this.getProvider(account);
     const provider = this.createProvider(current);
     if (provider.id !== "gemini") throw new ProviderError("Gemini account factory returned an incompatible provider", "configuration_error");
     await provider.initialize();

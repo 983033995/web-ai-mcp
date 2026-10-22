@@ -144,7 +144,7 @@ function chatPayload(prompt: string, previous?: RemoteSession): unknown[] {
   return payload;
 }
 
-export function parseGeminiRpc(text: string, rpcId: string): unknown {
+function parseGeminiRpc(text: string, rpcId: string): unknown {
   const parts = text.split("\n");
   let expectedLength: number | undefined;
   let xssiSeen = false;
