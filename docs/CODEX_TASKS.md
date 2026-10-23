@@ -5,8 +5,8 @@
 - [x] npm run setup:upstream (imports only Web reference source + WASM at pinned revision)
 - [x] npm run build, npm run typecheck, npm test
 - [ ] Verify source provenance / license and WASM redistribution status before public releases
-- [x] Inspect MCP tool listing; webai_providers must report DeepSeek active, Doubao not_implemented
-**Done:** compile/tests and six tools discoverable; no claim of live success yet.
+- [x] Inspect MCP tool listing; historically DeepSeek active / Doubao not_implemented (pre-Doubao). Current source: DeepSeek stable; Doubao and Gemini register only when credentials are configured (`webai_providers` omits unconfigured experimental providers).
+**Done:** compile/tests and tool discovery for configured providers; no claim of live success from compilation alone.
 
 ## P1: Authorized DeepSeek live tests
 - [x] Use an own-account userToken from local secret storage; never commit/log it
