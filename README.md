@@ -10,7 +10,7 @@
 
 适用于咨询代码、比较方案、持续讨论项目和生成图片/视频的场景。程序通过 npm/npx 安装，作为本机 **stdio MCP server** 运行。v0.2.0 加入实验性豆包网页版接入；v0.1.2 及更早版本只支持 DeepSeek。豆包已完成本人账号的代表性实测，仍受网站风控、额度和私有接口变化影响。验证边界见[风控记录](docs/DOUBAO_RISK_INVESTIGATION.md)和[生成验证](docs/DOUBAO_MEDIA_VALIDATION.md)。
 
-> **本文对应 v0.3.0，新增长聊天后台任务与首次使用指引，npm 实际版本以 registry 为准。** 项目自身代码采用 MIT，通过 GitHub Release / Actions 验证并发布（OIDC，无长期 npm token）。npm 地址用于安装程序，不是远程 MCP 服务地址；使用者无需部署服务器。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。DeepSeek 所需上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
+> **本文对应 v0.4.0（`package.json` / 当前 npm 发行）。** v0.3.0 起已含长聊天后台任务与首次使用指引；Gemini 网页能力在当前源码中为实验性，**尚未**打进已发布的 `web-ai-mcp@0.4.0`，请按下文源码接入。npm 实际版本以 registry 为准。 项目自身代码采用 MIT，通过 GitHub Release / Actions 验证并发布（OIDC，无长期 npm token）。npm 地址用于安装程序，不是远程 MCP 服务地址；使用者无需部署服务器。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。DeepSeek 所需上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
 
 ## 目录
 
