@@ -22,7 +22,7 @@ Issue #5（2026-10-08）要求**仅做研究**：评估 DeepSeek Web Search 与 
 2. **当前产品立场：**
    - **DeepSeek Web**：稳定能力（npm 已发布路径的主路径）。
    - **Doubao Web HTTP**：实验性；需本人 Cookie / 捕获的 chat URL / User-Agent；受网站风控与私有接口变化影响。
-   - **Gemini Web HTTP**：实验性；当前源码可用；**尚未**包含在已发布的 `web-ai-mcp@0.4.0` 中，须源码/`dist` 接入。
+   - **Gemini Web HTTP**：实验性；`web-ai-mcp@0.5.0` 起可选（npm/npx）；仍受网站风控与私有接口变化影响。
 3. **DeepSeek Web Search**：仍保持关闭（`search_enabled=false`）；启用前须另开证据充分的 ADR / Issue，不受本 ADR「取代 #5 Doubao 部分」影响。
 4. **硬边界不变：** 不自动登录、不刮 Cookie、不绕过 CAPTCHA/WAF、不公开免费中转；凭据不落盘到会话存储或 Git。
 

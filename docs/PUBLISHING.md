@@ -1,6 +1,6 @@
 # npm / npx 与自动发布
 
-包名：`web-ai-mcp`，本次版本：`0.4.0`，加入实验性豆包聊天、专家思考、TXT 分析、图片/视频生成、模型/参数选择、参考图、生成资源保存和图片官方无水印下载。发布完成以对应 Actions 与 npm registry 为准。项目自身代码采用 MIT。首次版本 `0.1.1` 已于 2026-10-09 发布；npm 账号为 `zhangheteng`，GitHub Actions trusted publisher 已按下表配置，无长期 npm token。
+包名：`web-ai-mcp`，本次版本：`0.5.0`，在 0.4.0 豆包能力之外，加入实验性 Gemini 网页聊天/媒体与多账号冷却，以及 0.4.0 之后的豆包参考图与 Gemini 稳定性修复。发布完成以对应 Actions 与 npm registry 为准。项目自身代码采用 MIT。首次版本 `0.1.1` 已于 2026-10-09 发布；npm 账号为 `zhangheteng`，GitHub Actions trusted publisher 已按下表配置，无长期 npm token。
 
 2026-10-09：[PR #7](https://github.com/983033995/web-ai-mcp/pull/7) 已合并，Node.js 20/22/24 CI 与[发布工作流验证模式](https://github.com/983033995/web-ai-mcp/actions/runs/37926416687)均通过。0.1.1 为维护者首次 bootstrap 发布，0.1.2 的自动发布由 GitHub Release 触发，发布结果以对应 Actions 运行及 registry 版本为准。
 
@@ -14,7 +14,7 @@ npx 首次运行或 `--setup` 从固定上游 URL 下载 WASM 到用户缓存，
 
 - `.github/workflows/ci.yml`：PR 和 main 推送运行 Node.js 20/22/24 的类型检查、构建、确定性测试（包括长任务与幂等回归）、本地 smoke 和隔离 npm 包 smoke。
 - `.github/workflows/publish.yml`：GitHub Release 发布时触发。手动运行默认只验证；将输入 `publish` 设为 true 才发布。
-- 发布在 `npm-release` environment 中运行，仅发布来自 main 历史的 commit；Release tag 必须与 package.json 一致，例如 `v0.4.0`。手动真正发布必须从 main 运行。
+- 发布在 `npm-release` environment 中运行，仅发布来自 main 历史的 commit；Release tag 必须与 package.json 一致，例如 `v0.5.0`。手动真正发布必须从 main 运行。
 - Node.js 24、npm >=11.5.1，禁用发布 job 的 npm 缓存。先构建、测试，再检查并隔离安装真实 tarball；最终发布同一个已验收 tarball。
 - 用 `contents: read` 和 `id-token: write` 支持 npm OIDC 与 provenance。不会使用 DEEPSEEK_USER_TOKEN，也不运行 live smoke。
 
@@ -52,7 +52,7 @@ npm publish --access public
 
 1. 通过 PR 更新 package.json、锁文件版本与 README 示例。
 2. 三项 CI 通过后 squash 合并到 main。
-3. 在该合并 commit 创建与版本一致的 tag，再发布 GitHub Release；例如 `v0.4.0`。
+3. 在该合并 commit 创建与版本一致的 tag，再发布 GitHub Release；例如 `v0.5.0`。
 4. Actions 验证并发布。核对 npm 上的版本与 provenance，再更新发布状态说明。
 
 不要每次 main 推送就发布新包，也不要覆盖已有 npm 版本。发布失败时先看失败步骤：权限错误修复 npm 授权；版本已存在则核对是否上次已经成功，勿自动重复发布。错误版本用新的修复版本替代，必要时 deprecate 受影响版本，不改写 Git 历史。

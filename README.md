@@ -6,11 +6,11 @@
 
 通过 MCP，让本机 AI 编程助手调用**你自己的 DeepSeek、豆包网页账号**，进行聊天、深度思考、文件分析和多轮讨论；豆包另支持图片、视频生成。
 
-当前源码另加入 **Gemini 网页聊天、图片和视频生成（实验性）**，支持命名会话、后台任务、只读媒体查询/下载，以及按配置顺序选择本人账号和独立额度冷却。Gemini 尚未包含在已发布的 `web-ai-mcp@0.4.0` 中，请按[源码接入说明](#gemini-接入源码实验功能)使用；能力与实测边界见[验证记录](docs/GEMINI_VALIDATION.md)。
+另支持 **Gemini 网页聊天、图片和视频生成（实验性，自 v0.5.0 起可通过 npm/npx 选用）**，支持命名会话、后台任务、只读媒体查询/下载，以及按配置顺序选择本人账号和独立额度冷却。配置见[Gemini 接入](#gemini-接入实验性)；能力与实测边界见[验证记录](docs/GEMINI_VALIDATION.md)。
 
 适用于咨询代码、比较方案、持续讨论项目和生成图片/视频的场景。程序通过 npm/npx 安装，作为本机 **stdio MCP server** 运行。v0.2.0 加入实验性豆包网页版接入；v0.1.2 及更早版本只支持 DeepSeek。豆包已完成本人账号的代表性实测，仍受网站风控、额度和私有接口变化影响。验证边界见[风控记录](docs/DOUBAO_RISK_INVESTIGATION.md)和[生成验证](docs/DOUBAO_MEDIA_VALIDATION.md)。
 
-> **本文对应 v0.4.0（`package.json` / 当前 npm 发行）。** v0.3.0 起已含长聊天后台任务与首次使用指引；Gemini 网页能力在当前源码中为实验性，**尚未**打进已发布的 `web-ai-mcp@0.4.0`，请按下文源码接入。npm 实际版本以 registry 为准。 项目自身代码采用 MIT，通过 GitHub Release / Actions 验证并发布（OIDC，无长期 npm token）。npm 地址用于安装程序，不是远程 MCP 服务地址；使用者无需部署服务器。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。DeepSeek 所需上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
+> **本文对应 v0.5.0（`package.json` / 当前 npm 发行）。** v0.3.0 起已含长聊天后台任务与首次使用指引；v0.5.0 起可选实验性 Gemini 网页能力（仍受网站风控与私有接口变化影响）。npm 实际版本以 registry 为准。 项目自身代码采用 MIT，通过 GitHub Release / Actions 验证并发布（OIDC，无长期 npm token）。npm 地址用于安装程序，不是远程 MCP 服务地址；使用者无需部署服务器。已有网站验证见[验证记录](docs/LOCAL_VALIDATION.md)，历史验证不保证后续私有接口稳定。DeepSeek 所需上游 WASM 不随 npm 包分发，其再分发许可仍未确认。
 
 ## 目录
 
@@ -36,7 +36,7 @@
 | 会话管理 | 已实现，列出或关闭本地会话映射 |
 | 网站搜索 | 未启用，`search_enabled` 固定为 `false` |
 | 豆包（v0.2.0 起） | 实验性快速/专家聊天、可见思考、TXT 分析、可选模型/参数的图片与视频生成、参考图及同会话续聊 |
-| Gemini（当前源码） | 实验性模型选择、三档思考等级、文件分析、图片/视频生成、原生比例、参考素材、后台任务和多账号额度冷却；参考视频生成仍为实验选项 |
+| Gemini（v0.5.0 起） | 实验性模型选择、三档思考等级、文件分析、图片/视频生成、原生比例、参考素材、后台任务和多账号额度冷却；参考视频生成仍为实验选项 |
 | 其他网站 | 未实现，不可调用 |
 | HTTP / 远程多用户 MCP | 未实现，仅支持本地 stdio |
 
@@ -53,7 +53,7 @@
 先准备一次 PoW WASM（不需要网站 token）：
 
 ```bash
-npx -y web-ai-mcp@0.4.0 --setup
+npx -y web-ai-mcp@0.5.0 --setup
 ```
 
 首次启动也会自动准备；显式执行 `--setup` 可避免客户端下载时间叠加 MCP 启动超时。WASM 从固定上游提交下载到本机缓存并校验 SHA-256，不写入 npm 安装目录，也不随包分发。后续版本更新请明确修改配置中的版本号。
@@ -78,7 +78,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
     "web-ai-mcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "web-ai-mcp@0.4.0"],
+      "args": ["-y", "web-ai-mcp@0.5.0"],
       "env": {
         "DEEPSEEK_USER_TOKEN": "YOUR_OWN_DEEPSEEK_WEB_TOKEN"
       }
@@ -91,7 +91,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
 
 | 配置位置 | 填什么 | 例子 |
 | --- | --- | --- |
-| `command` / `args` | 启动服务的命令、包名和 CLI 选项 | `npx`、`-y`、`web-ai-mcp@0.4.0` |
+| `command` / `args` | 启动服务的命令、包名和 CLI 选项 | `npx`、`-y`、`web-ai-mcp@0.5.0` |
 | `env` | 服务启动时的配置，值都用字符串 | `DEEPSEEK_USER_TOKEN`、`WEB_AI_PROJECT_ROOT` |
 | 每次工具调用的 JSON | 本轮问题、会话选择或文件列表 | `message`、`conversation_name`、`file_paths` |
 
@@ -121,7 +121,7 @@ npx 会自动安装已编译的包，不需要克隆项目或运行构建命令�
     "web-ai-mcp": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "web-ai-mcp@0.4.0"],
+      "args": ["-y", "web-ai-mcp@0.5.0"],
       "env": {
         "DEEPSEEK_USER_TOKEN": "YOUR_OWN_DEEPSEEK_WEB_TOKEN",
         "WEB_AI_PROJECT_ROOT": "/absolute/path/to/your-project",
@@ -155,7 +155,7 @@ Claude Code 的项目级文件是 `.mcp.json`；含真实 token 的配置不要�
 ```toml
 [mcp_servers.web-ai-mcp]
 command = "npx"
-args = ["-y", "web-ai-mcp@0.4.0"]
+args = ["-y", "web-ai-mcp@0.5.0"]
 startup_timeout_sec = 60
 tool_timeout_sec = 180
 
@@ -185,7 +185,7 @@ WEB_AI_PROJECT_ROOT=/absolute/path/to/your-project
 ```json
 {
   "args": [
-    "-y", "web-ai-mcp@0.4.0",
+    "-y", "web-ai-mcp@0.5.0",
     "--env-file", "/absolute/path/to/web-ai.env"
   ]
 }
@@ -370,7 +370,7 @@ Gemini 的选择优先级是 **本次显式参数 → 会话已保存的选择 �
 
 ### 豆包图片与视频生成
 
-使用 `web-ai-mcp@0.4.0`，并从本人同一次网页请求配置 `DOUBAO_COOKIE`、`DOUBAO_CHAT_URL` 和 `DOUBAO_USER_AGENT`，获取方法见[豆包接入](#豆包接入配置参数与获取方式)。建议设置 `DOUBAO_TIMEOUT=120000`，客户端工具超时大于此值。v0.1.2 不包含这些能力。
+使用 `web-ai-mcp@0.5.0`，并从本人同一次网页请求配置 `DOUBAO_COOKIE`、`DOUBAO_CHAT_URL` 和 `DOUBAO_USER_AGENT`，获取方法见[豆包接入](#豆包接入配置参数与获取方式)。建议设置 `DOUBAO_TIMEOUT=120000`，客户端工具超时大于此值。v0.1.2 不包含这些能力。
 
 | 工具 | 参数与行为 |
 | --- | --- |
@@ -487,7 +487,7 @@ Cookie 至少应包含 `sessionid`（或 `sessionid_ss`）、`passport_csrf_toke
   "mcpServers": {
     "web-ai": {
       "command": "npx",
-      "args": ["-y", "web-ai-mcp@0.4.0"],
+      "args": ["-y", "web-ai-mcp@0.5.0"],
       "env": {
         "DEEPSEEK_USER_TOKEN": "YOUR_OWN_DEEPSEEK_WEB_TOKEN",
         "DOUBAO_COOKIE": "YOUR_COMPLETE_REQUEST_COOKIE",
@@ -506,7 +506,7 @@ Cookie 至少应包含 `sessionid`（或 `sessionid_ss`）、`passport_csrf_toke
 
 已有 `web-ai` / `web-ai-mcp` 配置时，更新原来的服务项，保留其他 MCP。Qoder 的本机 `~/.qoder/settings.json` 使用 `mcpServers`；WorkBuddy 使用 `~/.workbuddy/mcp.json`。客户端找不到 `npx` 时使用其绝对路径；修改后重新连接该 MCP。`WEB_AI_ALLOWED_ROOTS` 仅文件分析/参考图需要，只聊天可以删掉；其余可选参数见上表。
 
-也可以把网站凭据集中放在本机私有 env 文件中，再使用 `args: ["-y", "web-ai-mcp@0.4.0", "--env-file", "/private/path/web-ai.env"]`。内容示例：
+也可以把网站凭据集中放在本机私有 env 文件中，再使用 `args: ["-y", "web-ai-mcp@0.5.0", "--env-file", "/private/path/web-ai.env"]`。内容示例：
 
 ```dotenv
 DOUBAO_COOKIE="sessionid=...; passport_csrf_token=...; s_v_web_id=..."
@@ -556,9 +556,9 @@ npx tsx scripts/probe-doubao.ts --env-file /private/path/.env --live --features
 
 此命令直接调用产品 HTTP Provider 并验证同会话标记回忆；失败返回非零退出码，不输出 Cookie、远端 ID 或正文。验证码要求会阻断该客户端后续聊天请求，直到重启 MCP；原网页不一定显示 HTTP 请求的挑战，须通过官方验证界面处理并用明确授权的 HTTP 探测确认恢复。没有自动签名生成、浏览器回退或消息重试。已有请求上下文可能变化，浏览器成功不保证纯 HTTP 可用；本次调查不能认定签名失效就是此前风控的原因。
 
-### Gemini 接入：源码实验功能
+### Gemini 接入：实验性
 
-此功能使用本人的 `gemini.google.com` 登录状态，通过私有网页接口聊天和生成媒体。不是 Gemini 官方 API，不扫描或自动取得浏览器账号。先按[源码安装](#源码安装与开发)完成构建，再配置本机源码入口；已发布的 `web-ai-mcp@0.4.0` 不包含此功能。
+此功能使用本人的 `gemini.google.com` 登录状态，通过私有网页接口聊天和生成媒体。不是 Gemini 官方 API，不扫描或自动取得浏览器账号。自 `web-ai-mcp@0.5.0` 起可通过 npm/npx 与 DeepSeek/豆包同样配置；也可按[源码安装](#源码安装与开发)使用本机 `dist` 入口。
 
 在本人正常登录的 Gemini 页面，从开发者工具 Network 的同一次网站请求取得完整 Cookie 和正常 User-Agent。只在本机私有配置中保存，不把 Cookie、Google 账号或请求上下文发送到聊天、Issue 或 Git。Cookie 须含 `__Secure-1PSID`；若账号有 `__Secure-1PSIDTS`，也一并保留。不要伪造或修改浏览器身份来规避网站限制。
 
@@ -567,8 +567,8 @@ npx tsx scripts/probe-doubao.ts --env-file /private/path/.env --live --features
   "mcpServers": {
     "web-ai-mcp": {
       "type": "stdio",
-      "command": "node",
-      "args": ["/absolute/path/to/web-ai-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "web-ai-mcp@0.5.0"],
       "env": {
         "GEMINI_COOKIE": "YOUR_OWN_GEMINI_COOKIE",
         "GEMINI_USER_AGENT": "YOUR_NORMAL_BROWSER_USER_AGENT",
@@ -674,7 +674,7 @@ npx tsx scripts/probe-gemini.ts --env-file /private/path/.env --live
 | --- | --- |
 | `setup:upstream` 下载失败 | 检查 GitHub 访问和本机 Git / 代理配置，恢复网络后重新执行；不要跳过 WASM 导入 |
 | `Missing upstream WASM` / `pow_unavailable` | 在仓库根目录依次执行 `npm run setup:upstream`、`npm run build` |
-| npx 的 WASM 下载或校验失败 | 检查 `raw.githubusercontent.com` 访问，执行 `npx -y web-ai-mcp@0.4.0 --setup`；或指定正确的本机 `WEB_AI_WASM_PATH`。损坏文件保留，不会自动覆盖 |
+| npx 的 WASM 下载或校验失败 | 检查 `raw.githubusercontent.com` 访问，执行 `npx -y web-ai-mcp@0.5.0 --setup`；或指定正确的本机 `WEB_AI_WASM_PATH`。损坏文件保留，不会自动覆盖 |
 | `npx` 返回 npm 404 | 核对包名、版本和 registry；推荐官方 https://registry.npmjs.org，镜像可能有同步延迟 |
 | `Missing DEEPSEEK_USER_TOKEN` | 检查服务配置的 `env.DEEPSEEK_USER_TOKEN`，修改后重启；仅在选择文件方式时检查 `--env-file` |
 | 本地测试通过，真实聊天失败 | 本地测试使用模拟网站，不验证账号权限、登录状态或当前网站兼容性 |

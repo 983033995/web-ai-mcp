@@ -18,11 +18,11 @@ Only secret-free lineage belongs in `RemoteSession`: it may now be persisted. Ne
 
 ## Current providers (source vs npm)
 
-| Provider | Registration | Product stance | npm `web-ai-mcp@0.4.0` |
+| Provider | Registration | Product stance | npm `web-ai-mcp@0.5.0` |
 | --- | --- | --- | --- |
 | DeepSeek Web | `DEEPSEEK_USER_TOKEN` (or alone when no Doubao/Gemini credentials) | **Stable** | Included |
 | Doubao Web HTTP | `DOUBAO_COOKIE` (+ chat URL / User-Agent) | **Experimental** | Included |
-| Gemini Web HTTP | `GEMINI_COOKIE` + UA, or private `GEMINI_ACCOUNTS_FILE` | **Experimental** | **Not** in published 0.4.0; use current source / built `dist` |
+| Gemini Web HTTP | `GEMINI_COOKIE` + UA, or private `GEMINI_ACCOUNTS_FILE` | **Experimental** | Included since 0.5.0 |
 
 `webai_providers` reports only registered providers. Incomplete providers must not appear active. Search stays disabled (`search_enabled=false`).
 
